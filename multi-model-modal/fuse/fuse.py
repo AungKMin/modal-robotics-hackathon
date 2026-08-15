@@ -122,13 +122,26 @@ def seg_features(rec: dict) -> dict:
     feats["cup_present_end"] = float(cup_end_present)
 
     if saucer_seen:
-        # Saucer is static: use its box from any frame where it was seen (median box).
-        boxes = [saucer_box(k) for k in keys if saucer_box(k) is not None]
-        bx = np.median(np.array(boxes), axis=0)
+        # Per-frame saucer box. On a head-mounted camera the saucer moves across the image
+        # as the head turns, so an episode-median box is wrong for egocentric data (it
+        # tagged 50/50 human episodes as failure). Fall back to the most recent frame's box
+        # when the saucer is momentarily undetected.
+        recent = None
+        for k in keys:
+            b = saucer_box(k)
+            if b is not None:
+                recent = b
         inside = []
-        for k in last:
+        last_box = None
+        for k in keys:
+            b = saucer_box(k)
+            if b is not None:
+                last_box = b
+            if k not in last:
+                continue
             c = cup_centroid(k)
-            if c is None:
+            bx = last_box or recent
+            if c is None or bx is None:
                 inside.append(0.0)
                 continue
             inside.append(float(bx[0] <= c[0] <= bx[2] and bx[1] <= c[1] <= bx[3]))
@@ -164,6 +177,11 @@ def seg_features(rec: dict) -> dict:
 def geo_features(rec: dict) -> dict:
     f = rec.get("features") or {}
     bi = f.get("bimanual") or {}
+    if not bi:
+        # No geometric record (human episodes have no gripper arrays): return nothing, so
+        # the veto cannot fire on absent evidence. This once tagged 50/50 human episodes
+        # as failure.
+        return {}
     return {
         "any_hold": bool(bi.get("any_hold", False)),
         "handover": bool(bi.get("handover_detected", False)),

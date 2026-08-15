@@ -1,14 +1,94 @@
 # Human Reward Model — EgoVerse Track 3
 
-A success/failure critic for egocentric human demonstrations. Given a video segment from
-[EgoVerse](https://github.com/GaTech-RL2/EgoVerse) and its annotations, we output a per-episode
-success/failure/drop label, a dense confidence trace over time, and a prevalence audit of how much
-of the dataset is actually failed demonstration.
+A success/failure critic for manipulation demos, running on [Modal](https://modal.com). Given
+an EgoVerse episode (robot **or** human egocentric) it outputs a per-episode
+success/failure tag, a per-frame confidence trace, and a dataset-level prevalence audit —
+with no new human labelling and no model training.
 
-Built for the EgoVerse Data Optimization & Evaluation Suite hackathon (one-day sprint), running on
-[Modal](https://modal.com).
+Built in one day for the EgoVerse Data Optimization & Evaluation Suite hackathon.
+
+## What we built
+
+Three signals, one fusion step, every stage a Modal app under `multi-model-modal/`:
+
+| stage | folder | model | what it produces |
+|---|---|---|---|
+| Segmentation | `sam3/` | **SAM 3** (text-prompted) | per-frame masks + stable track ids for `hand`, `cup`, `saucer` |
+| VLM critic | `vlm_critic/` | **Qwen3-VL-8B** · **Cosmos-Reason2-8B** · **PaliGemma 2** · **Cosmos3-Nano** (vLLM) | per-frame `p(goal state reached)` read from **logits**, not text — the confidence meter |
+| Geometric | `geometric/` | none — proprioception | holds / releases / slips / handover from `obs_gripper`, `cmd_gripper`, EE pose (robot episodes) |
+| Fusion + eval | `fuse/` | numpy | tag per episode, accuracy + AUROC where labels exist, prevalence where they don't |
+
+Every trace carries `source_indices` (sampled position → original frame) so any event can be
+located in the source video, and overlay / confidence-meter videos are rendered **inside the
+container** and written to both a local `<model>_out/` folder and the `egoverse-outputs` Volume.
+
+## Results
+
+**Labelled dev slice** — 20 `eva_bimanual` cup-on-saucer episodes, 10 success / 10 failure:
+
+| criterion | accuracy | AUROC |
+|---|---|---|
+| VLM `p_done_late` (Qwen3-VL-8B, goal-state question, median-calibrated) | 0.70 | **0.83** |
+| SEG cup-centroid-in-saucer-box over the last quarter | 0.70 | 0.64 |
+| Fused (mean of VLM+SEG, geometric veto) | 0.70 | 0.74 |
+
+**Unlabelled prevalence audit** — 50 human cup-on-saucer episodes
+([somundane/egoverse-cup50](https://huggingface.co/datasets/somundane/egoverse-cup50)), SEG criterion:
+**36 success / 14 failure → 28% failure prevalence.**
+
+Full tables: [`demo/eva_fusion_summary.md`](demo/eva_fusion_summary.md),
+[`demo/cup50_prevalence_summary.md`](demo/cup50_prevalence_summary.md).
+Sample SAM 3 overlays (10 fps human clips, 6 fps robot episodes): [`demo/`](demo/).
+
+### Findings worth defending
+
+- **Ask the VLM about the goal *state*, not task completion.** "Has the task been completed?"
+  is unanswerable from one frame (a handover is invisible) — p(yes) sat at ~1e-4 on every frame
+  of every episode, while the *ranking* still carried signal (AUROC 0.73). Asking "is the cup
+  resting on the saucer?" lifted AUROC to 0.83. Reading logits rather than generated text is
+  what made this diagnosable: 0.49 and 0.02 both print "No".
+- **On this robot task, failures are not drops.** Zero gripper slips in all 10 failures. What
+  separates the classes is effort shape — higher off-hand speed, shorter dominant-arm path in
+  successes. Geometry flags hesitation; the VLM adjudicates outcome.
+- **Conventions were checked, not assumed.** Gripper polarity (0 = closed) verified on the
+  wrist camera; each arm's EE pose is in its own base frame, resolved through `extrinsics⁻¹`
+  and verified by projecting onto the front image; SAM 3's saucer box must be per-frame on a
+  head-mounted camera (an episode-median box tagged 50/50 human episodes as failure).
+- **Same critic, robot and human.** Nothing was retrained between the fixed-camera bimanual
+  robot slice and the head-mounted human slices; only the prompts changed.
+
+## Run it
+
+```bash
+modal setup                                   # once
+modal secret create huggingface-secret HF_TOKEN=hf_...   # gated weights (PaliGemma, Cosmos)
+cd multi-model-modal
+
+# data → Modal Volumes (once)
+modal volume create egoverse-episodes && modal volume put egoverse-episodes /path/to/eva_zarr
+modal run cup50/prepare.py                    # HF parquet → Volume egoverse-cup50
+
+# the three signals, then fusion
+modal run sam3/episodes.py --stride 5 --prompts "hand,cup,saucer"
+modal run vlm_critic/app.py --model qwen --stride 30       # or paligemma / cosmos
+modal run geometric/app.py                                 # CPU, seconds
+python3 fuse/fuse.py                                       # → fuse_out/summary.md
+
+# any other Volume of episodes, e.g. the human sets
+EPISODES_VOLUME=egoverse-cup50 modal run vlm_critic/app.py --stride 1 --out vlm_critic_out_cup50
+```
+
+Each folder's README documents its flags, outputs and the design decisions behind it.
+`CLAUDE.md` records the data conventions that were verified along the way.
 
 ---
+
+# Design notes (original plan)
+
+The rest of this document is the design written before the sprint. Where the plan and the
+built system diverge, the sections above and the per-folder READMEs are authoritative — in
+particular the dev slice turned out to be a bimanual *robot* embodiment, so stage [A] was
+rebuilt on gripper proprioception rather than MANO/Dyn-HaMR (see `geometric/README.md`).
 
 ## The problem
 
@@ -237,40 +317,17 @@ loading one would eat our GPU budget for no deliverable.
 
 ---
 
-## Repo layout
+## Repo layout (as built)
 
 ```
-modal_app/
-  image.py            # Modal image defs: rfdetr, dyn-hamr, vlm serving
-  extract.py          # per-episode geometric feature extraction (fan-out)
-  critic.py           # VLM critic endpoint (Cosmos Reason / Qwen3-VL served on Modal)
-  fuse.py             # calibration + episode labeling
-  audit.py            # dataset-level prevalence rollup
-data/
-  sync.py             # wraps EgoVerse egomimic/scripts/data_download/sync_s3.py
-  schema.py           # zarr episode reader: images, MANO keypoints, poses, intrinsics
-eval/
-  dev_labels.jsonl    # ~100 hand-labeled episodes (our ground truth)
-  metrics.py          # AUROC, reliability curve, per-slice prevalence
-dashboard/
-  app.py              # confidence meter + prevalence view
-```
-
-## Setup
-
-```bash
-uv venv --python 3.11 && uv pip install -e .
-modal setup
-aws configure                      # EgoVerse data lives in S3
-python -m data.sync --tag aria-fold-clothes
-```
-
-Run the pipeline:
-
-```bash
-modal run modal_app/extract.py --tag aria-fold-clothes    # fan-out feature extraction
-modal run modal_app/critic.py  --episodes out/shard-*.jsonl
-modal run modal_app/audit.py                              # prevalence report
+multi-model-modal/
+  sam3/         app.py (clips) · episodes.py (zarr episodes, overlay video) · visualize.py
+  vlm_critic/   app.py (Qwen3-VL / Cosmos-Reason2 / PaliGemma) · cosmos3.py (vLLM)
+  geometric/    proprioception features, CPU
+  fuse/         fuse.py — tags, accuracy/AUROC, prevalence
+  cup50/        prepare.py — HF parquet → zarr Volume
+demo/           sample overlays + result summaries
+sync_s3.py      EgoVerse S3 sync with named episode presets
 ```
 
 ## Evaluation
