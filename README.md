@@ -42,7 +42,15 @@ container** and written to both a local `<model>_out/` folder and the `egoverse-
 
 Full tables: [`demo/eva_fusion_summary.md`](demo/eva_fusion_summary.md),
 [`demo/cup50_prevalence_summary.md`](demo/cup50_prevalence_summary.md).
-Sample SAM 3 overlays (10 fps human clips, 6 fps robot episodes): [`demo/`](demo/).
+
+**Sample SAM 3 overlays** — masks tinted per track, boxes, `id:score`, prompted with
+`hand, cup, saucer` (click through to play; GitHub's file viewer plays `.mp4` inline):
+
+- [Robot (`eva_bimanual`), 6 fps](demo/sam3_eva/2026-03-04-19-11-58-058000_overlay.mp4)
+- [Human (cup50 dev slice), 10 fps](demo/sam3_10fps/692e98927641010d04354574_overlay.mp4)
+- [Human (head-mounted), 1 fps](demo/sam3_10fps/human_1fps_2025-12-25-20-00-08-755000_overlay.mp4)
+
+Full set: [`demo/`](demo/).
 
 ### Findings worth defending
 
