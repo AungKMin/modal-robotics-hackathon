@@ -7,7 +7,7 @@ with no new human labelling and no model training.
 
 Built in one day for the EgoVerse Data Optimization & Evaluation Suite hackathon.
 
-![demo](demo/sam3_10fps/692e98927641010d04354574_overlay.mp4)
+https://github.com/user-attachments/assets/bf97fde3-0637-4622-8e00-3abb104e7c60
 
 ## What we built
 
