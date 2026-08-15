@@ -32,7 +32,7 @@ confidence meter → episode tag → prevalence audit. Plus SAM 3 text-prompted 
 
 | | Qwen3-VL-8B | PaliGemma2-3B | Cosmos-Reason2-8B | SAM 3 |
 |---|---|---|---|---|
-| cup50 short clips (n=8, end-of-clip) | 8/9 success | 3/8 | 7/8 | **36/50 → 28% failure prevalence** |
+| cup50 clips (n=50, end-of-clip) | 39/50 success | 42/50 | 34/50 | **fused 35/50 → 30% failure prevalence** |
 | aria 2-min egocentric (n=8, peak) | 8/8 | 8/8 | 6/8 | 2/5 |
 
 **Three things we learned**
@@ -103,14 +103,14 @@ container** and written to both a local `<model>_out/` folder and the `egoverse-
 | Fused (mean of VLM+SEG, geometric veto) | 0.70 | 0.74 |
 
 **Unlabelled prevalence audit** — 50 human cup-on-saucer episodes
-([somundane/egoverse-cup50](https://huggingface.co/datasets/somundane/egoverse-cup50)), SEG criterion:
-**36 success / 14 failure → 28% failure prevalence.**
+([somundane/egoverse-cup50](https://huggingface.co/datasets/somundane/egoverse-cup50)):
+SEG alone **36/14 (28% failure)**; SAM 3 + all three VLMs fused **35/15 (30% failure)**, 27/50 unanimous.
 
 **Human sets, three critics** (8 episodes each, `p(done)` ≥ 0.5 → success):
 
 | set | statistic | Qwen3-VL-8B | PaliGemma2-3B | Cosmos-Reason2-8B |
 |---|---|---|---|---|
-| cup50 short clips | `late` (end of clip) | 8/9 success | 3/8 | 7/8 |
+| cup50 clips (n=50) | `late` (end of clip) | 39/50 success | 42/50 | 34/50 |
 | aria 80–140 s egocentric | `max` (peak) | 8/8 success | 8/8 | 6/8 |
 
 Why `max` for aria: the person looks away after placing the cup, so the goal state is not in
@@ -118,11 +118,12 @@ view at the end and `late` reads No for everything (0/8). The same statistic on 
 eva slice over-calls success (17/20), because a cup passing over the saucer mid-attempt also
 peaks — so it is a per-dataset choice, stated, and both counts are shown for every set.
 
-**Final verdict on cup50 — SAM 3 + all three VLMs combined.** Success = the cup ends up on
-the saucer; failure = it does not. `final = mean(SEG, mean(VLMs)) ≥ 0.5`, geometry and VLMs
-weighted equally so neither can outvote the other alone. **36 success / 14 failure → 28% failure
-prevalence** over 50 episodes; on the 9 with every signal, 8/1, with per-episode vote counts.
-Table: [`results/cup50_final.md`](results/cup50_final.md).
+**Final verdict on cup50 — SAM 3 + all three VLMs combined, all 50 clips.** Success = the cup
+ends up on the saucer; failure = it does not. `final = mean(SEG, mean(VLMs)) ≥ 0.5`, geometry and
+VLMs weighted equally so neither can outvote the other alone. **35 success / 15 failure → 30%
+failure prevalence.** Agreement is high: 27/50 clips are unanimous across all four signals, 37/50
+have ≥3 of 4 agreeing; only 6 are split 2–2. Table with per-episode votes:
+[`results/cup50_final.md`](results/cup50_final.md).
 
 **One aria video split into its attempts** — a 2-minute egocentric episode is not one demo,
 it's the person placing the cup again and again. Segmenting on cup rests *relative to the

@@ -37,7 +37,7 @@
         <tr><th>Track 3 asks for</th><th>We ship</th></tr>
         <tr><td>Tagged episodes</td><td>success/failure per episode from per-frame <b>p(goal state)</b> read from Qwen3-VL / Cosmos-Reason2 / PaliGemma logits</td></tr>
         <tr><td>Confidence meter</td><td>the p(done) curve itself, rendered as a video per episode (bar + sparkline)</td></tr>
-        <tr><td>Prevalence audit</td><td>SAM 3 cup-in-saucer test on 50 human clips → <span class="big">28% failure</span></td></tr>
+        <tr><td>Prevalence audit</td><td>SAM 3 + 3 VLMs fused on 50 human clips → <span class="big">30% failure</span></td></tr>
       </table>
     </div>
 
@@ -61,7 +61,7 @@
       <h2>Unlabelled human video — three VLM lineages, one code path</h2>
       <table>
         <tr><th></th><th>Qwen3-VL-8B</th><th>PaliGemma2-3B</th><th>Cosmos-Reason2-8B</th><th>SAM 3</th></tr>
-        <tr><td>cup50 short clips (n=8, end of clip)</td><td class="num">8/9 ✅</td><td class="num">3/8</td><td class="num">7/8</td><td class="num"><b>36/50 → 28% fail</b></td></tr>
+        <tr><td>cup50 clips (n=50, end of clip)</td><td class="num">39/50 ✅</td><td class="num">42/50</td><td class="num">34/50</td><td class="num"><b>fused: 35/50 → 30% fail</b></td></tr>
         <tr><td>aria 2-min egocentric (n=8, peak)</td><td class="num">8/8</td><td class="num">8/8</td><td class="num">6/8</td><td class="num">2/5</td></tr>
       </table>
     </div>

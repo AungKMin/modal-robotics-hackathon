@@ -19,7 +19,7 @@ confidence meter → episode tag → prevalence audit. Plus SAM 3 text-prompted 
 
 | | Qwen3-VL-8B | PaliGemma2-3B | Cosmos-Reason2-8B | SAM 3 |
 |---|---|---|---|---|
-| cup50 short clips (n=8, end-of-clip) | 8/9 success | 3/8 | 7/8 | **36/50 → 28% failure prevalence** |
+| cup50 clips (n=50, end-of-clip) | 39/50 success | 42/50 | 34/50 | **fused 35/50 → 30% failure prevalence** |
 | aria 2-min egocentric (n=8, peak) | 8/8 | 8/8 | 6/8 | 2/5 |
 
 **Three things we learned**
