@@ -454,9 +454,11 @@ def main(
     return_masks: bool = False,
     render: bool = True,
     render_full_fps: bool = True,
+    match: str = "",
 ):
     """
-    Fan out over every episode in the Volume.
+    Fan out over every episode in the Volume. --match keeps only episode names starting
+    with the given prefix (e.g. --match 692e for the short cup50 clips).
 
     Outputs, per episode:
       <out>/<episode>.json          per-frame trace (objects, boxes, centroids, ids)
@@ -483,6 +485,8 @@ def main(
             "  modal volume create egoverse-episodes\n"
             "  modal volume put egoverse-episodes /home/asubuntu/egoverse_data"
         )
+    if match:
+        episodes = [e for e in episodes if e["episode"].startswith(match)]
     if limit:
         episodes = episodes[:limit]
 

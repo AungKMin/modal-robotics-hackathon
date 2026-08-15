@@ -67,9 +67,15 @@ def prepare(force: bool = False) -> dict:
     for ep, rows in sorted(by_ep.items()):
         rows.sort(key=lambda i: frames[i])
         out = Path(OUT_DIR) / ep
-        if (out / "zarr.json").exists() and not force:
-            summary["skipped"] += 1
-            continue
+        # Only skip episodes that finished; a crash mid-episode leaves a partial group.
+        if not force and (out / "zarr.json").exists():
+            try:
+                done = zarr.open_group(str(out), mode="r").attrs.get("complete", False)
+            except Exception:  # noqa: BLE001
+                done = False
+            if done:
+                summary["skipped"] += 1
+                continue
         blobs = []
         for i in rows:
             img = images[i]
@@ -96,14 +102,17 @@ def prepare(force: bool = False) -> dict:
         a = g.create_array("images.front_1", shape=(n,), dtype=zarr.dtype.VariableLengthBytes(), chunks=(n,))
         a[:] = np.array(blobs, dtype=object)
         for c in pose_cols:
-            vals = [poses[c][i] for i in rows]
-            width = max(len(v) for v in vals)
+            vals = [poses[c][i] or [] for i in rows]
+            width = max((len(v) for v in vals), default=0)
+            if width == 0:
+                continue  # column empty for this episode (some rows carry no pose)
             arr = np.full((n, width), np.nan, dtype=np.float32)
             for k, v in enumerate(vals):
                 arr[k, : len(v)] = v
             # eva naming: left.obs_ee_pose etc. Keep obs_head_pose / obs_eye_gaze as-is.
             name = c.replace("left_obs_", "left.obs_").replace("right_obs_", "right.obs_")
             g.create_array(name, shape=arr.shape, dtype="float32", chunks=arr.shape)[:] = arr
+        g.attrs["complete"] = True
         summary["episodes"] += 1
         summary["frames"] += n
         print(f"  {ep}: {n} frames @ {fps:.1f} fps")
