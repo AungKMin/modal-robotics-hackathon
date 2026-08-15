@@ -118,6 +118,12 @@ view at the end and `late` reads No for everything (0/8). The same statistic on 
 eva slice over-calls success (17/20), because a cup passing over the saucer mid-attempt also
 peaks — so it is a per-dataset choice, stated, and both counts are shown for every set.
 
+**One aria video split into its attempts** — a 2-minute egocentric episode is not one demo,
+it's the person placing the cup again and again. Segmenting on cup rests *relative to the
+saucer* (so head motion cancels) and scoring each pick-up→set-down transition:
+**25 attempts → 16 success / 9 failure**, plus 16 returns to the start position that are
+correctly not counted. Table and trace plot: [`results/aria_split_2025-11-24-23-59-28-546000.md`](results/aria_split_2025-11-24-23-59-28-546000.md).
+
 **Cross-model report with graphs: [`results/`](results/README.md)** — ROC curves, p(done) traces per episode, tags per dataset × model (Qwen3-VL-8B, PaliGemma 2, Cosmos-Reason2-8B), model agreement, and what each model's top tokens actually were.
 
 Full tables: [`demo/eva_fusion_summary.md`](demo/eva_fusion_summary.md),
