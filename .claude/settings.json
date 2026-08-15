@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+
+      "Bash(modal *)",
+      "PowerShell(modal *)",
+
+      "Bash(uv *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(pytest *)",
+      "PowerShell(uv *)",
+      "PowerShell(python *)",
+      "PowerShell(pytest *)",
+
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git branch *)",
+      "Bash(git add *)",
+      "Bash(git restore *)",
+      "Bash(git stash *)",
+      "PowerShell(git status *)",
+      "PowerShell(git diff *)",
+      "PowerShell(git log *)",
+      "PowerShell(git add *)",
+
+      "Bash(gh pr view *)",
+      "Bash(gh pr list *)",
+      "Bash(gh issue list *)",
+
+      "Bash(aws s3 ls *)",
+      "Bash(aws s3 cp *)",
+      "Bash(aws s3 sync *)",
+      "Bash(aws sts get-caller-identity *)",
+      "PowerShell(aws s3 ls *)",
+      "PowerShell(aws s3 sync *)",
+
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(jq *)",
+      "Bash(zarr *)",
+      "Bash(ffprobe *)",
+      "Bash(ffmpeg *)",
+      "Bash(nvidia-smi *)",
+      "Bash(huggingface-cli *)",
+      "Bash(hf *)",
+
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:huggingface.co)",
+      "WebFetch(domain:modal.com)",
+      "WebFetch(domain:arxiv.org)"
+    ],
+    "deny": [
+      "Bash(aws s3 rm *)",
+      "Bash(aws s3 rb *)",
+      "PowerShell(aws s3 rm *)",
+      "Bash(modal volume delete *)",
+      "Bash(modal app stop *)",
+      "Bash(git push --force*)",
+      "Bash(git reset --hard *)",
+      "Bash(rm -rf *)",
+      "PowerShell(Remove-Item -Recurse -Force *)"
+    ]
+  }
+}
