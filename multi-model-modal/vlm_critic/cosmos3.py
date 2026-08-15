@@ -76,10 +76,13 @@ with image.imports():
     import zarr
     from PIL import Image as PILImage
 
+# Goal-STATE question, not process: a single frame cannot show whether a task "was
+# completed", and that phrasing drove p(yes) to ~1e-4 on every frame with Qwen. Whether the
+# cup is on the saucer IS visible in a frame.
 QUESTION = (
     "Task: {task}\n"
-    "Look at the current state of the scene. "
-    "Has the task been completed successfully? Answer Yes or No."
+    "Look only at what is visible in this image. Is the cup resting on the saucer right now? "
+    "Answer Yes or No."
 )
 
 
