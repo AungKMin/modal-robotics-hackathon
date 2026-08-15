@@ -53,6 +53,30 @@ confidence meter → episode tag → prevalence audit. Plus SAM 3 text-prompted 
 Graphs, ROC, per-episode verdicts and each model's actual top tokens: [`results/`](results/README.md).
 Sample overlays and confidence-meter videos: [`demo/`](demo/).
 
+**Two verdicts from the confidence meter** (last sampled frame, Qwen3-VL-8B, `eva_bimanual`
+labelled slice — both agree with ground truth):
+
+<table>
+<tr>
+<td width="50%">
+
+![success — p(done)=0.99, agrees with ground truth](demo/vlm_examples/eva_success_2026-03-04-19-11-58-058000.png)
+
+**Tagged success** — episode `2026-03-04-19-11-58-058000`, frame 990, `p(done)=0.99`.
+Cup resting on the saucer under the left gripper.
+
+</td>
+<td width="50%">
+
+![failure — p(done)=0.00, agrees with ground truth](demo/vlm_examples/eva_failure_2026-03-01-21-53-09-065000.png)
+
+**Tagged failure** — episode `2026-03-01-21-53-09-065000`, frame 1410, `p(done)=0.00`.
+Cup and saucer left on opposite sides of the table.
+
+</td>
+</tr>
+</table>
+
 ## What we built
 
 Three signals, one fusion step, every stage a Modal app under `multi-model-modal/`:
