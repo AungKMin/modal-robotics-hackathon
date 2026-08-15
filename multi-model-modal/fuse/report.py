@@ -30,8 +30,10 @@ DATASETS = {
     # name: (vlm dir, seg dir, geo dir or None, description)
     "eva":   ("vlm_critic_out",       "sam3_out/episodes", "geometric_out",
               "20 eva_bimanual robot episodes, labelled 10/10"),
-    "cup50": ("vlm_critic_out_cup50", "sam3_out/cup50",    None,
-              "human cup-on-saucer clips (somundane/egoverse-cup50), unlabelled"),
+    # 3 fps VLM traces (stride 10 on the 30 fps source) are canonical; the 1 fps parquet run
+    # lives in vlm_critic_out_cup50/ and is reported separately as the sampling-rate check.
+    "cup50": ("vlm_critic_out_cup50_3fps", "sam3_out/cup50", None,
+              "human cup-on-saucer clips (somundane/egoverse-cup50), unlabelled, VLMs at 3 fps"),
     "aria":  ("vlm_critic_out_aria",  "sam3_out/aria",     None,
               "human egocentric cup-on-saucer episodes (aria), unlabelled"),
 }
