@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+
+# Sample clips pulled by sam3/fetch_samples.py — regenerate, don't commit
+clips/
+
+# Per-episode traces written by modal run
+sam3_out/
+sam3_trace.json

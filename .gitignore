@@ -1,0 +1,10 @@
+# AWS CLI installer — 341MB, fetched by the EgoVerse S3 setup step
+aws/
+awscliv2.zip
+
+# Modal's vendored agent skills — regenerate with `modal skills install --claude`
+.claude/skills/
+
+__pycache__/
+*.pyc
+.venv/
