@@ -12,3 +12,4 @@ geometric_out/
 fuse_out/
 sam3_out*/
 vlm_critic_out*/
+run_episode_out/

@@ -110,6 +110,18 @@ Full report with every graph and per-episode verdict: [`results/`](results/READM
 
 ## Run it
 
+**One episode, the whole critic** — SAM 3 + all three VLMs in parallel, fused into a verdict card:
+
+```bash
+cd multi-model-modal
+python3 run_episode.py 692e98927641010d04354574                    # a cup50 clip at 3 fps
+python3 run_episode.py 2025-11-24-23-59-28 --volume egoverse-aria --stride 15
+```
+Writes `run_episode_out/<episode>/verdict.md` plus the traces, overlay and meter videos, and each
+model's top tokens. Legs that fail transiently are retried once; logs are kept next to the verdict.
+
+**Everything else:**
+
 ```bash
 modal setup                                   # once
 modal secret create huggingface-secret HF_TOKEN=hf_...   # gated weights (PaliGemma, Cosmos)
