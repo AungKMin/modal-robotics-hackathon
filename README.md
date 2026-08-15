@@ -9,17 +9,54 @@ Built in one day for the EgoVerse Data Optimization & Evaluation Suite hackathon
 
 https://github.com/user-attachments/assets/bf97fde3-0637-4622-8e00-3abb104e7c60
 
-## Results at a glance
+## The result: a failure audit of 50 human cup-on-saucer demos
 
 > One-slide version: [`SLIDE.pptx`](SLIDE.pptx) · [`SLIDE.png`](SLIDE.png) · [`SLIDE.html`](SLIDE.html) · [`SLIDE.md`](SLIDE.md)
 
-**Does the demo succeed? Ask the VLM's logits, not its words.**
-Per-frame `p(cup is on the saucer)` read from Qwen3-VL-8B / Cosmos-Reason2-8B / PaliGemma 2 logits →
-confidence meter → episode tag → prevalence audit. Fused with SAM 3 text-prompted masks
-(`hand`, `cup`, `saucer`) and, on robot episodes, gripper proprioception. Zero training, zero new
-labels, all on Modal. **Success = the cup ends up on the saucer; failure = it does not.**
+**Success = the cup ends up on the saucer; failure = it does not.** No labels exist for these
+50 clips ([somundane/egoverse-cup50](https://huggingface.co/datasets/somundane/egoverse-cup50)),
+so this is the Track 3 prevalence audit proper: four independent signals, every one run on
+every clip, fused into one verdict per episode.
 
-**Labelled robot slice** — 20 eva cup-on-saucer episodes, 10 success / 10 failure
+| signal | how | tagged success | failure prevalence |
+|---|---|---|---|
+| **SAM 3** geometry | text-prompted masks for `cup`, `saucer`; is the cup centroid inside the saucer box at the end? | 36/50 | 28% |
+| **Qwen3-VL-8B** | p("Yes") from logits to *"is the cup resting on the saucer?"*, last quarter of frames | 39/50 | 22% |
+| **PaliGemma2-3B** | same question, VQA-style prompt | 42/50 | 16% |
+| **Cosmos-Reason2-8B** | same question, embodied-reasoning fine-tune of Qwen3-VL | 34/50 | 32% |
+| **Fused** = mean(SEG, mean of VLMs) ≥ 0.5 | geometry and language weighted equally | **35/50** | **30%** |
+
+**Agreement:** 27/50 clips unanimous across all four signals, 37/50 with ≥3 of 4, 6 split 2–2.
+Per-episode votes: [`results/cup50_final.md`](results/cup50_final.md). Two independent kinds of
+evidence — geometry and language — land on the same prevalence (28% vs 30%).
+
+<table><tr>
+<td><img src="demo/gifs/sam3_cup50_10fps_success.gif" width="440"><br><sub>SAM 3 at 10 fps: <code>hand</code>, <code>cup</code>, <code>saucer</code> from text prompts — a unanimous success (4/4)</sub></td>
+<td><img src="demo/gifs/meter_cup50_qwen.gif" width="440"><br><sub>The confidence meter: p(cup on saucer) per frame from Qwen3-VL logits, same clip</sub></td>
+</tr></table>
+
+<table><tr>
+<td><img src="demo/stills/unanimous_success_692e98927641010d04354574_end.jpg" width="300"><br><sub>✅ unanimous success — SEG 1.00 · VLMs 0.96/0.79/1.00</sub></td>
+<td><img src="demo/stills/unanimous_failure_2026-01-11-23-11-22-998000_end.jpg" width="300"><br><sub>❌ unanimous failure — SEG 0.00 · VLMs 0.00/0.07/0.00</sub></td>
+<td><img src="demo/stills/disputed_seg_yes_vlm_split_692ea3beffdc0ca6345c4246_end.jpg" width="300"><br><sub>disputed — SEG 1.00, VLMs 0.32/0.58/0.00 → ✅ geometry carried it</sub></td>
+<td><img src="demo/stills/disputed_seg_no_vlm_yes_692ea671dbc4294a49cc727e_end.jpg" width="300"><br><sub>disputed — SEG 0.00, VLMs 0.73/0.74/0.56 → ❌ geometry pulled the mean under 0.5</sub></td>
+</tr></table>
+
+<table><tr>
+<td><img src="results/prevalence.png" width="560"><br><sub>Tags per dataset × model at a fixed 0.5</sub></td>
+<td><img src="results/agreement_cup50.png" width="300"><br><sub>Pairwise tag agreement on cup50</sub></td>
+</tr></table>
+
+Every trace carries `source_indices` (sampled position → original frame), the model's top-5 first
+tokens on the last frame (so you can see it is answering Yes/No and not something else), and the
+overlay / meter videos are rendered in-container and written to both a local `<model>_out/` folder
+and the `egoverse-outputs` Modal Volume. More clips, meters and stills: [`demo/`](demo/README.md).
+
+## Side experiments
+
+### Validation on a labelled robot slice
+20 `eva_bimanual` cup-on-saucer episodes, 10 success / 10 failure — the only labels we had, used to
+check the signals are real before running them on human video.
 
 | signal | accuracy | AUROC |
 |---|---|---|
@@ -27,130 +64,44 @@ labels, all on Modal. **Success = the cup ends up on the saucer; failure = it do
 | SAM 3 cup-centroid-in-saucer | 0.70 | 0.64 |
 | Fused + geometric veto | 0.70 | 0.74 |
 
-**Prevalence audit — 50 unlabelled human cup-on-saucer clips**
-([somundane/egoverse-cup50](https://huggingface.co/datasets/somundane/egoverse-cup50)), every signal on every clip
+<table><tr>
+<td><img src="results/eva_roc.png" width="330"></td>
+<td><img src="demo/gifs/meter_eva_failure_qwen.gif" width="440"><br><sub>A labelled failure: the meter never rises</sub></td>
+</tr></table>
 
-| signal | tagged success | failure prevalence |
-|---|---|---|
-| SAM 3 cup-in-saucer | 36/50 | 28% |
-| Qwen3-VL-8B | 39/50 | 22% |
-| PaliGemma2-3B | 42/50 | 16% |
-| Cosmos-Reason2-8B | 34/50 | 32% |
-| **Fused** = mean(SEG, mean of VLMs) | **35/50** | **30%** |
+Robot episodes also carry gripper proprioception, so a third signal exists there: `obs_gripper` vs
+`cmd_gripper` gives holds, releases and slips directly (`geometric/`). Finding: **zero gripper slips
+across all 10 failures** — on this task failures are hesitation, not drops.
 
-Agreement: **27/50 clips unanimous** across all four signals, 37/50 with ≥3 of 4, only 6 split 2–2.
-Per-episode votes: [`results/cup50_final.md`](results/cup50_final.md).
+### One 2-minute egocentric video, split into attempts
+An aria head-cam episode is not one demo — the person places the cup 25 times. Segmenting on cup
+rests *relative to the saucer* (so head motion cancels) and scoring each pick-up→set-down:
+**25 attempts → 16 success / 9 failure**, plus 16 returns to the start position, correctly not counted.
 
-**One 2-minute aria egocentric video, split into attempts** — cup rests *relative to the saucer*
-(so head motion cancels), each pick-up→set-down scored: **25 attempts → 16 success / 9 failure**,
-plus 16 returns to the start position correctly not counted.
-[`results/aria_split_2025-11-24-23-59-28-546000.md`](results/aria_split_2025-11-24-23-59-28-546000.md)
+<table><tr>
+<td><img src="demo/gifs/sam3_aria_hands.gif" width="420"><br><sub>SAM 3 tracking both hands, cup and saucer on the head-cam</sub></td>
+<td><img src="results/aria_split_2025-11-24-23-59-28-546000.png" width="560"><br><sub>cup speed rel. saucer · cup-in-saucer · VLM p(done), attempts shaded</sub></td>
+</tr></table>
 
-**Three things we learned (and can prove)**
+Table: [`results/aria_split_2025-11-24-23-59-28-546000.md`](results/aria_split_2025-11-24-23-59-28-546000.md).
+
+### Three things we learned (and can prove)
 
 1. **Ask about the goal *state*, not "was the task completed?"** The latter is unanswerable from
    one frame; p(yes) sat at 10⁻⁴ on every frame while the *ranking* still worked (AUROC 0.73 →
-   0.83 after the fix). And the smaller the model, the more literal the question must be:
-   PaliGemma hedged at 0.28–0.65 on the generic prompt and became decisive (0.07–0.97) on
-   "is the cup resting on the saucer?". Only visible because we read logits — 0.49 and 0.02
-   both print "No".
+   0.83 after the fix). And the smaller the model, the more literal the question: PaliGemma
+   hedged at 0.28–0.65 on the generic prompt and became decisive (0.07–0.97) on "is the cup
+   resting on the saucer?". Only visible because we read logits — 0.49 and 0.02 both print "No".
 2. **Robot failures here are not drops.** Zero gripper slips across all 10 failures; hesitation
    (off-hand speed, dominant-arm path length) separates the classes. Geometry flags, VLM adjudicates.
 3. **The unit of evaluation must match the video.** A cup50 clip is one attempt — score its end.
-   An aria episode is 25 attempts — segment first, then score each; the episode-level number was
-   never the right question. Camera motion has to cancel to segment: cup speed relative to a
-   static scene object, not in image space.
+   An aria episode is 25 attempts — segment first, then score each. Camera motion has to cancel to
+   segment: cup speed relative to a static scene object, not in image space.
 
 **Cost:** geometric track is CPU, seconds. VLM at 1 fps is one batched forward pass per frame
-(16/pass) on an H100; all 50 clips × 3 models ran in minutes. A full-dataset sweep is a `.map()`.
+(16/pass, H100); all 50 clips × 3 models ran in minutes. A full-dataset sweep is a `.map()`.
 
-Graphs, ROC, per-episode verdicts and each model's actual top tokens: [`results/`](results/README.md).
-Sample overlays, hand/cup/saucer segmentation on egocentric video, the disputed clips, and confidence-meter videos with stills: [`demo/`](demo/README.md).
-
-## What we built
-
-Three signals, one fusion step, every stage a Modal app under `multi-model-modal/`:
-
-| stage | folder | model | what it produces |
-|---|---|---|---|
-| Segmentation | `sam3/` | **SAM 3** (text-prompted) | per-frame masks + stable track ids for `hand`, `cup`, `saucer` |
-| VLM critic | `vlm_critic/` | **Qwen3-VL-8B** · **Cosmos-Reason2-8B** · **PaliGemma 2** · **Cosmos3-Nano** (vLLM) | per-frame `p(goal state reached)` read from **logits**, not text — the confidence meter |
-| Geometric | `geometric/` | none — proprioception | holds / releases / slips / handover from `obs_gripper`, `cmd_gripper`, EE pose (robot episodes) |
-| Fusion + eval | `fuse/` | numpy | tag per episode, accuracy + AUROC where labels exist, prevalence where they don't |
-
-Every trace carries `source_indices` (sampled position → original frame) so any event can be
-located in the source video, and overlay / confidence-meter videos are rendered **inside the
-container** and written to both a local `<model>_out/` folder and the `egoverse-outputs` Volume.
-
-## Results
-
-**Labelled dev slice** — 20 `eva_bimanual` cup-on-saucer episodes, 10 success / 10 failure:
-
-| criterion | accuracy | AUROC |
-|---|---|---|
-| VLM `p_done_late` (Qwen3-VL-8B, goal-state question, median-calibrated) | 0.70 | **0.83** |
-| SEG cup-centroid-in-saucer-box over the last quarter | 0.70 | 0.64 |
-| Fused (mean of VLM+SEG, geometric veto) | 0.70 | 0.74 |
-
-**Unlabelled prevalence audit** — 50 human cup-on-saucer episodes
-([somundane/egoverse-cup50](https://huggingface.co/datasets/somundane/egoverse-cup50)):
-SEG alone **36/14 (28% failure)**; SAM 3 + all three VLMs fused **35/15 (30% failure)**, 27/50 unanimous.
-
-**Human sets, three critics** (8 episodes each, `p(done)` ≥ 0.5 → success):
-
-| set | statistic | Qwen3-VL-8B | PaliGemma2-3B | Cosmos-Reason2-8B |
-|---|---|---|---|---|
-| cup50 clips (n=50) | `late` (end of clip) | 39/50 success | 42/50 | 34/50 |
-| aria 80–140 s egocentric | `max` (peak) | 8/8 success | 8/8 | 6/8 |
-
-Why `max` for aria: the person looks away after placing the cup, so the goal state is not in
-view at the end and `late` reads No for everything (0/8). The same statistic on the labelled
-eva slice over-calls success (17/20), because a cup passing over the saucer mid-attempt also
-peaks — so it is a per-dataset choice, stated, and both counts are shown for every set.
-
-**Final verdict on cup50 — SAM 3 + all three VLMs combined, all 50 clips.** Success = the cup
-ends up on the saucer; failure = it does not. `final = mean(SEG, mean(VLMs)) ≥ 0.5`, geometry and
-VLMs weighted equally so neither can outvote the other alone. **35 success / 15 failure → 30%
-failure prevalence.** Agreement is high: 27/50 clips are unanimous across all four signals, 37/50
-have ≥3 of 4 agreeing; only 6 are split 2–2. Table with per-episode votes:
-[`results/cup50_final.md`](results/cup50_final.md).
-
-**One aria video split into its attempts** — a 2-minute egocentric episode is not one demo,
-it's the person placing the cup again and again. Segmenting on cup rests *relative to the
-saucer* (so head motion cancels) and scoring each pick-up→set-down transition:
-**25 attempts → 16 success / 9 failure**, plus 16 returns to the start position that are
-correctly not counted. Table and trace plot: [`results/aria_split_2025-11-24-23-59-28-546000.md`](results/aria_split_2025-11-24-23-59-28-546000.md).
-
-**Cross-model report with graphs: [`results/`](results/README.md)** — ROC curves, p(done) traces per episode, tags per dataset × model (Qwen3-VL-8B, PaliGemma 2, Cosmos-Reason2-8B), model agreement, and what each model's top tokens actually were.
-
-Full tables: [`demo/eva_fusion_summary.md`](demo/eva_fusion_summary.md),
-[`demo/cup50_prevalence_summary.md`](demo/cup50_prevalence_summary.md).
-
-**Sample SAM 3 overlays** — masks tinted per track, boxes, `id:score`, prompted with
-`hand, cup, saucer` (click through to play; GitHub's file viewer plays `.mp4` inline):
-
-- [Robot (`eva_bimanual`), 6 fps](demo/sam3_eva/2026-03-04-19-11-58-058000_overlay.mp4)
-- [Human (cup50 dev slice), 10 fps](demo/sam3_10fps/692e98927641010d04354574_overlay.mp4)
-- [Human (head-mounted), 1 fps](demo/sam3_10fps/human_1fps_2025-12-25-20-00-08-755000_overlay.mp4)
-
-Full set: [`demo/`](demo/).
-
-### Findings worth defending
-
-- **Ask the VLM about the goal *state*, not task completion.** "Has the task been completed?"
-  is unanswerable from one frame (a handover is invisible) — p(yes) sat at ~1e-4 on every frame
-  of every episode, while the *ranking* still carried signal (AUROC 0.73). Asking "is the cup
-  resting on the saucer?" lifted AUROC to 0.83. Reading logits rather than generated text is
-  what made this diagnosable: 0.49 and 0.02 both print "No".
-- **On this robot task, failures are not drops.** Zero gripper slips in all 10 failures. What
-  separates the classes is effort shape — higher off-hand speed, shorter dominant-arm path in
-  successes. Geometry flags hesitation; the VLM adjudicates outcome.
-- **Conventions were checked, not assumed.** Gripper polarity (0 = closed) verified on the
-  wrist camera; each arm's EE pose is in its own base frame, resolved through `extrinsics⁻¹`
-  and verified by projecting onto the front image; SAM 3's saucer box must be per-frame on a
-  head-mounted camera (an episode-median box tagged 50/50 human episodes as failure).
-- **Same critic, robot and human.** Nothing was retrained between the fixed-camera bimanual
-  robot slice and the head-mounted human slices; only the prompts changed.
+Full report with every graph and per-episode verdict: [`results/`](results/README.md).
 
 ## Run it
 
