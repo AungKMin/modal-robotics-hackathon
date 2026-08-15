@@ -30,6 +30,11 @@ every clip, fused into one verdict per episode.
 Per-episode votes: [`results/cup50_final.md`](results/cup50_final.md). Two independent kinds of
 evidence — geometry and language — land on the same prevalence (28% vs 30%).
 
+**Robustness to sampling rate:** re-running all three VLMs at 3 fps (20 frames/clip instead of 7,
+from the 30 fps source) changes **1 verdict out of 50** — fused 34/16, 32% — with 26/50 still
+unanimous. Individual models move more (Qwen 39→33 tagged success, Cosmos 34→37); the fusion
+absorbs it. [`results/cup50_3fps_final.md`](results/cup50_3fps_final.md).
+
 <table><tr>
 <td><img src="demo/gifs/sam3_cup50_10fps_success.gif" width="440"><br><sub>SAM 3 at 10 fps: <code>hand</code>, <code>cup</code>, <code>saucer</code> from text prompts — a unanimous success (4/4)</sub></td>
 <td><img src="demo/gifs/meter_cup50_qwen.gif" width="440"><br><sub>The confidence meter: p(cup on saucer) per frame from Qwen3-VL logits, same clip</sub></td>
