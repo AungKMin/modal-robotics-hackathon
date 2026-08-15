@@ -29,7 +29,12 @@ app = modal.App(name="vlm-critic")
 
 CACHE_DIR = "/cache"
 EPISODES_DIR = "/episodes"
-MAX_CONTAINERS = 4
+import os as _os0
+# Speed knobs, all env-overridable at `modal run` time:
+#   VLM_GPU=H100 VLM_CONTAINERS=8 VLM_BATCH=16 modal run vlm_critic/app.py ...
+MAX_CONTAINERS = int(_os0.environ.get("VLM_CONTAINERS", "4"))
+GPU = _os0.environ.get("VLM_GPU", "A100-40GB")
+BATCH = int(_os0.environ.get("VLM_BATCH", "8"))
 
 MODELS = {
     # apache-2.0, ungated. The default: nothing to accept, nothing to configure.
@@ -147,7 +152,7 @@ def list_episodes() -> list[dict]:
     image=image,
     # 8.8B params in bf16 is ~17.5GB of weights before activations and the vision tower.
     # A100-40GB has the headroom; L40S (48GB) also fits and is usually cheaper to get.
-    gpu="A100-40GB",
+    gpu=GPU,
     timeout=3600,
     volumes={CACHE_DIR: cache_volume, EPISODES_DIR: episodes_volume, OUTPUTS_DIR: outputs_volume},
     secrets=[hf_secret],
@@ -200,22 +205,19 @@ class Critic:
         images = [PILImage.open(io.BytesIO(b)).convert("RGB") for b in blobs]
         return images, source_indices, attrs
 
-    def _p_yes(self, image, task: str) -> float:
+    def _p_yes_batch(self, images: list, task: str) -> list:
         """
-        One forward pass; return p(Yes) renormalised over {Yes, No}.
+        One forward pass for a batch of frames; returns p(Yes) renormalised over {Yes, No}
+        per frame. No generation — only the distribution over the first answer token.
 
-        No generation at all — we only need the distribution over the first answer token,
-        so `generate()` would be wasted work. Renormalising over just the two answers
-        removes the mass the model puts on unrelated continuations, which otherwise makes
-        the trace depend on unrelated formatting quirks.
-
-        inference_mode is entered inside the body, not as a decorator: decorators evaluate
-        at class-definition time, and `torch` only exists inside `image.imports()`, which
-        is a no-op locally. `modal run` imports this module locally to discover the app, so
-        a `@torch....` decorator would NameError before anything reached a container.
+        Left padding is essential: with right padding, position -1 of a shorter row is a
+        pad token and its logits are garbage. Same-size images give equal image-token counts
+        so padding is usually a no-op, but the setting must be there for when it is not.
         """
         with torch.inference_mode():
             q = self._question.format(task=task)
+            tok = self.processor.tokenizer
+            tok.padding_side = "left"
             if self.model_key in CHAT_MODELS:
                 messages = [
                     {
@@ -230,31 +232,32 @@ class Critic:
                     messages, tokenize=False, add_generation_prompt=True
                 )
                 inputs = self.processor(
-                    text=[prompt], images=[image], return_tensors="pt"
+                    text=[prompt] * len(images), images=images, padding=True,
+                    return_tensors="pt",
                 ).to(self.model.device)
             else:
-                # PaliGemma: the processor inserts the image tokens itself; the "answer en"
-                # prefix is how the mix checkpoints were trained to do VQA. Keep the question
-                # to one line — it is a short-answer model, not an instruction follower.
+                # PaliGemma: processor inserts image tokens; "answer en" is the VQA prefix.
                 short_q = q.split("\n")[-1].strip()
                 inputs = self.processor(
-                    images=image, text=f"answer en {short_q}", return_tensors="pt"
+                    images=images, text=[f"answer en {short_q}"] * len(images),
+                    padding=True, return_tensors="pt",
                 ).to(self.model.device)
 
-            logits = self.model(**inputs).logits[0, -1].float()
+            logits = self.model(**inputs).logits[:, -1].float()
             probs = torch.softmax(logits, dim=-1)
-            p_yes = probs[self.yes_ids].sum().item()
-            p_no = probs[self.no_ids].sum().item()
-            top = torch.topk(probs, 5)
+            p_yes = probs[:, self.yes_ids].sum(dim=-1)
+            p_no = probs[:, self.no_ids].sum(dim=-1)
+            top = torch.topk(probs[-1], 5)
             self._last_top = [
-                (self.processor.tokenizer.decode([int(i)]), round(float(v), 4))
+                (tok.decode([int(i)]), round(float(v), 4))
                 for v, i in zip(top.values, top.indices)
             ]
+            total = p_yes + p_no
+            out = torch.where(total < 1e-9, torch.full_like(total, 0.5), p_yes / total.clamp_min(1e-9))
+            return [float(x) for x in out.tolist()]
 
-        total = p_yes + p_no
-        # Degenerate case: the model put essentially no mass on either answer. Report the
-        # midpoint rather than a divide-by-zero or a fake confident number.
-        return 0.5 if total < 1e-9 else p_yes / total
+    def _p_yes(self, image, task: str) -> float:
+        return self._p_yes_batch([image], task)[0]
 
     @modal.method()
     def score_episode(
@@ -274,7 +277,9 @@ class Critic:
         print(f"{episode}: {len(images)} frames (stride {stride})")
 
         self._question = question or QUESTION
-        trace = [self._p_yes(img, task) for img in images]
+        trace = []
+        for i in range(0, len(images), BATCH):
+            trace.extend(self._p_yes_batch(images[i:i + BATCH], task))
         # What the model actually wanted to say on the LAST frame — the single most useful
         # diagnostic when a trace looks flat.
         last_top = getattr(self, "_last_top", None)
