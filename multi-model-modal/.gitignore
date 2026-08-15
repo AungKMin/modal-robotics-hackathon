@@ -7,6 +7,5 @@ clips/
 # Per-episode traces written by modal run
 sam3_out/
 sam3_trace.json
-episode_out/
 vlm_critic_out/
 geometric_out/

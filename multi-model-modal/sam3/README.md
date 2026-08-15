@@ -81,6 +81,13 @@ original episode frame number. Failure-onset localization is meaningless without
 
 Traces also carry `label`, parsed from `task_name` — see below.
 
+Outputs land in **`sam3_out/episodes/`**: `<episode>.json` (trace) and
+`<episode>_overlay.mp4` (masks tinted per track, boxes, `id:score`, source-frame stamp).
+Overlays are drawn **inside the container** while the full-resolution masks are still in
+memory, encoded with PyAV at `fps/stride` so playback runs in real time, and written to
+both the local folder and the `egoverse-outputs` Volume (`modal volume ls egoverse-outputs
+/sam3`). `--no-render` skips the video. `sam3/visualize.py` remains for the mp4-clip path.
+
 ## Visualizing masks
 
 Masks are off by default, so re-run with them on, then render:

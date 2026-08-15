@@ -43,6 +43,10 @@ MODELS = {
 cache_volume = modal.Volume.from_name("hf-hub-cache", create_if_missing=True)
 episodes_volume = modal.Volume.from_name("egoverse-episodes", create_if_missing=True)
 hf_secret = modal.Secret.from_name("huggingface-secret", required_keys=["HF_TOKEN"])
+# Rendered confidence-meter videos are written here as well as returned, so the demo
+# artefacts live in Modal storage independent of whoever ran the job.
+OUTPUTS_DIR = "/outputs"
+outputs_volume = modal.Volume.from_name("egoverse-outputs", create_if_missing=True)
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
@@ -53,6 +57,7 @@ image = (
         "accelerate>=1.11.0",
         "numpy>=2.0,<3",
         "pillow>=11.0.0",
+        "av>=15.0.0",
         "zarr>=3.0.0",
         "numcodecs>=0.13.0",
     )
@@ -125,7 +130,7 @@ def list_episodes() -> list[dict]:
     # A100-40GB has the headroom; L40S (48GB) also fits and is usually cheaper to get.
     gpu="A100-40GB",
     timeout=3600,
-    volumes={CACHE_DIR: cache_volume, EPISODES_DIR: episodes_volume},
+    volumes={CACHE_DIR: cache_volume, EPISODES_DIR: episodes_volume, OUTPUTS_DIR: outputs_volume},
     secrets=[hf_secret],
     scaledown_window=300,
     max_containers=MAX_CONTAINERS,
@@ -220,6 +225,7 @@ class Critic:
         stride: int = 30,
         max_frames: Optional[int] = None,
         task_override: Optional[str] = None,
+        render: bool = True,
     ) -> dict:
         images, source_indices, attrs = self._read_frames(
             episode, camera, stride, max_frames
@@ -230,16 +236,37 @@ class Critic:
         trace = [self._p_yes(img, task) for img in images]
 
         task_name = attrs.get("task_name") or ""
+        label = (
+            "success" if task_name.endswith("_success")
+            else "failure" if task_name.endswith("_failure")
+            else None
+        )
+
+        # The confidence meter as a video: each sampled frame with p(done) drawn under it
+        # and the trace-so-far as a sparkline. This IS deliverable #2 in demo form.
+        meter_mp4 = None
+        if render:
+            fps = float(attrs.get("fps") or 30.0)
+            frames = [
+                _draw_meter(img, trace, k, source_indices[k], label, MODELS[self.model_key])
+                for k, img in enumerate(images)
+            ]
+            meter_mp4 = _encode_mp4(frames, max(1, round(fps / max(1, stride))))
+            import os
+            out_path = f"{OUTPUTS_DIR}/vlm_critic/{self.model_key}/{episode}_meter.mp4"
+            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+            with open(out_path, "wb") as fh:
+                fh.write(meter_mp4)
+            outputs_volume.commit()
+
         return {
+            "meter_mp4": meter_mp4,
             "episode": episode,
             "model": MODELS[self.model_key],
+            "model_key": self.model_key,
             "task": task,
             "task_name": task_name,
-            "label": (
-                "success" if task_name.endswith("_success")
-                else "failure" if task_name.endswith("_failure")
-                else None
-            ),
+            "label": label,
             "stride": stride,
             "source_indices": source_indices,
             # The confidence meter (deliverable #2), one value per sampled frame.
@@ -254,6 +281,65 @@ class Critic:
             ),
         }
 
+
+
+def _draw_meter(img, trace: list, k: int, source_idx: int, label, model_id: str):
+    """
+    Frame + confidence meter. A filled bar for p(done) at this frame, the trace so far as
+    a sparkline, and the ground-truth label so a viewer can judge the curve at a glance.
+    """
+    from PIL import ImageDraw
+
+    W, H = img.size
+    strip = 64
+    canvas = PILImage.new("RGB", (W, H + strip), (18, 18, 20))
+    canvas.paste(img, (0, 0))
+    d = ImageDraw.Draw(canvas)
+    p = float(trace[k])
+    # bar
+    bx0, by0, bx1, by1 = 8, H + 8, W - 8, H + 24
+    d.rectangle([bx0, by0, bx1, by1], outline=(90, 90, 95), width=1)
+    fill = (56, 176, 0) if p >= 0.5 else (255, 89, 94)
+    d.rectangle([bx0 + 1, by0 + 1, bx0 + 1 + int((bx1 - bx0 - 2) * p), by1 - 1], fill=fill)
+    d.text((bx0, H + 28), f"p(done)={p:.2f}  frame {source_idx}  label={label}  {model_id.split('/')[-1]}",
+           fill=(230, 230, 230))
+    # sparkline of the trace so far, right-aligned in the strip
+    n = len(trace)
+    if n > 1:
+        sx0, sy0, sw, sh = W - 8 - 160, H + 40, 160, 20
+        pts = [(sx0 + int(sw * i / (n - 1)), sy0 + sh - int(sh * float(trace[i]))) for i in range(k + 1)]
+        d.rectangle([sx0, sy0, sx0 + sw, sy0 + sh], outline=(60, 60, 65), width=1)
+        d.line([(sx0, sy0 + sh // 2), (sx0 + sw, sy0 + sh // 2)], fill=(60, 60, 65), width=1)
+        if len(pts) > 1:
+            d.line(pts, fill=(255, 202, 58), width=2)
+    return np.asarray(canvas)
+
+
+def _encode_mp4(frames: list, fps: int) -> bytes:
+    """In-memory H.264 mp4 via PyAV; mpeg4 fallback; even dims for yuv420p."""
+    import av
+
+    h, w = frames[0].shape[:2]
+    w2, h2 = w + (w % 2), h + (h % 2)
+    buf = io.BytesIO()
+    with av.open(buf, mode="w", format="mp4") as container:
+        try:
+            stream = container.add_stream("libx264", rate=fps)
+            stream.options = {"crf": "23", "preset": "veryfast"}
+        except Exception:
+            stream = container.add_stream("mpeg4", rate=fps)
+        stream.width, stream.height, stream.pix_fmt = w2, h2, "yuv420p"
+        for f in frames:
+            if (w2, h2) != (w, h):
+                padded = np.zeros((h2, w2, 3), dtype=np.uint8)
+                padded[:h, :w] = f
+                f = padded
+            vf = av.VideoFrame.from_ndarray(np.ascontiguousarray(f), format="rgb24")
+            for packet in stream.encode(vf):
+                container.mux(packet)
+        for packet in stream.encode():
+            container.mux(packet)
+    return buf.getvalue()
 
 def _variant_ids(tok, words: list[str]) -> list[int]:
     """
@@ -278,6 +364,7 @@ def main(
     max_frames: int = 0,
     limit: int = 0,
     out: str = "vlm_critic_out",
+    render: bool = True,
 ):
     """
     Score every episode in the Volume and write one p(yes) trace per episode.
@@ -306,12 +393,12 @@ def main(
     names = [e["episode"] for e in episodes]
     print(f"{len(names)} episodes through {MODELS[model]}, stride={stride}")
 
-    out_dir = Path(out)
-    out_dir.mkdir(exist_ok=True)
+    out_dir = Path(out) / model   # one subfolder per model so qwen/cosmos never overwrite
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     results = Critic(model_key=model).score_episode.map(
         names,
-        kwargs={"camera": camera, "stride": stride, "max_frames": max_frames or None},
+        kwargs={"camera": camera, "stride": stride, "max_frames": max_frames or None, "render": render},
         return_exceptions=True,
     )
 
@@ -320,6 +407,9 @@ def main(
         if isinstance(result, Exception):
             print(f"  {name}: FAILED — {result}")
             continue
+        mp4 = result.pop("meter_mp4", None)
+        if mp4:
+            (out_dir / f"{name}_meter.mp4").write_bytes(mp4)
         (out_dir / f"{name}.json").write_text(json.dumps(result))
         scored.append(result)
         print(

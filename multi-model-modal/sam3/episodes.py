@@ -33,7 +33,18 @@ MAX_CONTAINERS = 4
 
 cache_volume = modal.Volume.from_name("hf-hub-cache", create_if_missing=True)
 episodes_volume = modal.Volume.from_name("egoverse-episodes", create_if_missing=True)
+# Rendered overlays and traces are written here as well as returned to the caller, so the
+# artefacts survive in Modal storage independent of whoever ran the job.
+OUTPUTS_DIR = "/outputs"
+outputs_volume = modal.Volume.from_name("egoverse-outputs", create_if_missing=True)
 hf_secret = modal.Secret.from_name("huggingface-secret", required_keys=["HF_TOKEN"])
+
+# Overlay palette, keyed by object id so a track keeps its colour for its whole life.
+PALETTE = [
+    (255, 89, 94), (56, 176, 0), (25, 130, 196), (255, 202, 58),
+    (154, 78, 174), (255, 146, 76), (0, 187, 249), (241, 91, 181),
+]
+ALPHA = 0.45
 
 # Mirrors sam3/app.py's image, plus zarr. EgoVerse writes zarr v3 (`zarr_format: 3`) with
 # sharded vlen-bytes + zstd codecs, so the v2 reader will not open these at all.
@@ -120,7 +131,11 @@ def list_episodes() -> list[dict]:
     gpu="L40S",
     # Episodes run to 3010 frames; even subsampled this is far longer than a 30-frame clip.
     timeout=3600,
-    volumes={CACHE_DIR: cache_volume, EPISODES_DIR: episodes_volume},
+    volumes={
+        CACHE_DIR: cache_volume,
+        EPISODES_DIR: episodes_volume,
+        OUTPUTS_DIR: outputs_volume,
+    },
     secrets=[hf_secret],
     scaledown_window=300,
     max_containers=MAX_CONTAINERS,
@@ -178,6 +193,7 @@ class EpisodeSegmenter:
         stride: int = 5,
         max_frames: Optional[int] = None,
         return_masks: bool = False,
+        render: bool = True,
     ) -> dict:
         frames, source_indices, attrs = self._read_frames(
             episode, camera, stride, max_frames
@@ -193,14 +209,36 @@ class EpisodeSegmenter:
         self.processor.add_text_prompt(session, prompts)
 
         per_frame = {}
+        rendered = []
         for model_outputs in self.model.propagate_in_video_iterator(inference_session=session):
             out = self.processor.postprocess_outputs(session, model_outputs)
-            per_frame[model_outputs.frame_idx] = _summarise(out, return_masks)
+            idx = model_outputs.frame_idx
+            per_frame[idx] = _summarise(out, return_masks)
+            if render:
+                # Draw while the full-resolution masks are still in memory — no need to
+                # round-trip them through a sidecar to make the video.
+                rendered.append(
+                    _draw_overlay(frames[idx], out, source_indices[idx])
+                )
 
         torch.cuda.empty_cache()
 
+        fps = float(attrs.get("fps") or 30.0)
+        overlay_mp4 = None
+        if render and rendered:
+            # Play back at fps/stride so the video runs in real time despite subsampling.
+            overlay_mp4 = _encode_mp4(rendered, max(1, round(fps / max(1, stride))))
+            out_path = f"{OUTPUTS_DIR}/sam3/{episode}_overlay.mp4"
+            import os
+            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+            with open(out_path, "wb") as fh:
+                fh.write(overlay_mp4)
+            outputs_volume.commit()
+            print(f"{episode}: overlay {len(overlay_mp4)/1e6:.1f} MB -> volume:{out_path}")
+
         task_name = attrs.get("task_name") or ""
         return {
+            "overlay_mp4": overlay_mp4,
             "episode": episode,
             "camera": camera,
             "prompts": prompts,
@@ -220,6 +258,74 @@ class EpisodeSegmenter:
             "source_indices": source_indices,
             "frames": per_frame,
         }
+
+
+def _draw_overlay(frame: "np.ndarray", out: dict, source_idx: int) -> "np.ndarray":
+    """
+    Tint each mask in its track's colour, box it, label `id:score`, stamp the source frame.
+
+    Runs on the raw postprocess_outputs dict so it can use the full-resolution masks
+    directly. Returns an RGB uint8 array the same size as `frame`.
+    """
+    from PIL import ImageDraw
+
+    arr = frame.astype(np.float32)
+    object_ids = out["object_ids"].tolist()
+    masks = out["masks"].cpu().numpy().astype(bool)
+    boxes = out["boxes"].cpu().numpy()
+    scores = out["scores"].tolist()
+
+    for i, obj_id in enumerate(object_ids):
+        m = masks[i]
+        if m.shape != arr.shape[:2]:
+            continue
+        tint = np.array(PALETTE[int(obj_id) % len(PALETTE)], dtype=np.float32)
+        arr[m] = arr[m] * (1 - ALPHA) + tint * ALPHA
+
+    img = PILImage.fromarray(arr.astype(np.uint8))
+    draw = ImageDraw.Draw(img)
+    for i, obj_id in enumerate(object_ids):
+        color = PALETTE[int(obj_id) % len(PALETTE)]
+        x0, y0, x1, y1 = [float(v) for v in boxes[i]]
+        draw.rectangle([x0, y0, x1, y1], outline=color, width=2)
+        label = f"{int(obj_id)}:{scores[i]:.2f}"
+        tx, ty = x0 + 2, max(0, y0 - 12)
+        draw.rectangle([tx - 1, ty - 1, tx + 6 * len(label) + 2, ty + 11], fill=(0, 0, 0))
+        draw.text((tx, ty), label, fill=color)
+    draw.text((6, 6), f"frame {source_idx}", fill=(0, 0, 0))
+    draw.text((5, 5), f"frame {source_idx}", fill=(255, 255, 255))
+    return np.asarray(img)
+
+
+def _encode_mp4(frames: list, fps: int) -> bytes:
+    """
+    Encode RGB frames to an in-memory H.264 mp4 with PyAV (already in the image for the
+    clip path). Falls back to mpeg4 if this PyAV build lacks libx264. Odd dimensions are
+    padded because yuv420p needs even width and height.
+    """
+    import av
+
+    h, w = frames[0].shape[:2]
+    w2, h2 = w + (w % 2), h + (h % 2)
+    buf = io.BytesIO()
+    with av.open(buf, mode="w", format="mp4") as container:
+        try:
+            stream = container.add_stream("libx264", rate=fps)
+            stream.options = {"crf": "23", "preset": "veryfast"}
+        except Exception:
+            stream = container.add_stream("mpeg4", rate=fps)
+        stream.width, stream.height, stream.pix_fmt = w2, h2, "yuv420p"
+        for f in frames:
+            if (w2, h2) != (w, h):
+                padded = np.zeros((h2, w2, 3), dtype=np.uint8)
+                padded[:h, :w] = f
+                f = padded
+            vf = av.VideoFrame.from_ndarray(np.ascontiguousarray(f), format="rgb24")
+            for packet in stream.encode(vf):
+                container.mux(packet)
+        for packet in stream.encode():
+            container.mux(packet)
+    return buf.getvalue()
 
 
 def _summarise(out: dict, return_masks: bool) -> dict:
@@ -265,11 +371,18 @@ def main(
     stride: int = 5,
     max_frames: int = 0,
     limit: int = 0,
-    out: str = "episode_out",
+    out: str = "sam3_out/episodes",
     return_masks: bool = False,
+    render: bool = True,
 ):
     """
     Fan out over every episode in the Volume.
+
+    Outputs, per episode:
+      <out>/<episode>.json          per-frame trace (objects, boxes, centroids, ids)
+      <out>/<episode>_overlay.mp4   masks tinted per track, boxes, id:score, source frame
+    The same mp4 is also written to the `egoverse-outputs` Volume under /sam3/, so it lives
+    in Modal storage independent of the machine that ran the job. --no-render skips it.
 
         modal run sam3/episodes.py --prompts "cup,saucer" --stride 5
         modal run sam3/episodes.py --limit 2 --max-frames 40      # quick shakeout first
@@ -302,7 +415,7 @@ def main(
     )
 
     out_dir = Path(out)
-    out_dir.mkdir(exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     results = EpisodeSegmenter().segment_episode.map(
         names,
@@ -312,6 +425,7 @@ def main(
             "stride": stride,
             "max_frames": max_frames or None,
             "return_masks": return_masks,
+            "render": render,
         },
         return_exceptions=True,
     )
@@ -324,14 +438,22 @@ def main(
         tracks = {o["object_id"] for f in result["frames"].values() for o in f["objects"]}
         if return_masks:
             _write_masks(out_dir, name, result)
+        # Bytes are not JSON; pull the video out of the record before dumping the trace.
+        mp4 = result.pop("overlay_mp4", None)
+        video_note = ""
+        if mp4:
+            (out_dir / f"{name}_overlay.mp4").write_bytes(mp4)
+            video_note = f", overlay {len(mp4)/1e6:.1f} MB"
         print(
             f"  {name}: {len(result['frames'])} frames, {len(tracks)} tracks, "
-            f"label={result['label']}"
+            f"label={result['label']}{video_note}"
         )
         (out_dir / f"{name}.json").write_text(json.dumps(result))
         ok += 1
 
     print(f"✓ {ok}/{len(names)} episodes written to {out_dir}/")
+    if render and ok:
+        print("  overlays also in Modal storage: modal volume ls egoverse-outputs /sam3")
 
 
 def _write_masks(out_dir, stem, result) -> str:

@@ -10,16 +10,28 @@ the confidence meter; its late-frame value is the episode verdict.
 modal run vlm_critic/app.py --limit 2 --max-frames 10    # shakeout
 modal run vlm_critic/app.py --stride 30                  # full slice, Qwen3-VL
 modal run vlm_critic/app.py --model cosmos --stride 30   # Cosmos Reason 2
+modal run vlm_critic/cosmos3.py --stride 30              # Cosmos 3 reasoner via vLLM
 ```
 
 Requires the `egoverse-episodes` Volume (see `../multi-model-modal/sam3/README.md`).
 
 ## Models
 
-| key | id | notes |
-|---|---|---|
-| `qwen` (default) | `Qwen/Qwen3-VL-8B-Instruct` | apache-2.0, ungated |
-| `cosmos` | `nvidia/Cosmos-Reason2-8B` | **gated** — accept terms first |
+| key | id | serving | notes |
+|---|---|---|---|
+| `qwen` (default) | `Qwen/Qwen3-VL-8B-Instruct` | transformers, `app.py` | apache-2.0, ungated |
+| `cosmos` | `nvidia/Cosmos-Reason2-8B` | transformers, `app.py` | **gated** — accept terms first |
+| `cosmos3` | `nvidia/Cosmos3-Nano` (reasoner tower) | vLLM, `cosmos3.py` | 16B omnimodel, ungated (OpenMDW 1.1), H100 |
+
+There is no "Cosmos Reason 3": the Reason line stops at Reason 2 (2B/8B/32B). Cosmos 3 is an
+omnimodel whose autoregressive **reasoner** tower does understanding; NVIDIA serves it via
+`vllm serve nvidia/Cosmos3-Nano --hf-overrides '{"architectures":["Cosmos3ReasonerForConditionalGeneration"]}'`.
+`cosmos3.py` runs that in-container and reads p(Yes) from the OpenAI-compatible API's
+`top_logprobs` on a single generated token — the same trick one layer up. It is a separate
+app because vLLM pins its own torch and would fight the transformers image.
+
+Why three: `qwen` vs `cosmos` isolates *fine-tuning* (same base). `cosmos3` isolates
+*lineage* (different base entirely). If all three agree the signal is real.
 
 Cosmos Reason 2 is a fine-tune *of* Qwen3-VL-8B-Instruct — same `qwen3_vl` architecture, same
 8.77B params — so one code path serves both and the comparison is genuinely apples-to-apples:
@@ -48,7 +60,13 @@ Two details that decide whether the trace is real signal or noise:
 
 ## Output
 
-`vlm_critic_out/<episode>.json` per episode:
+`vlm_critic_out/<model_key>/<episode>.json` per episode, plus
+`vlm_critic_out/<model_key>/<episode>_meter.mp4` — the **confidence meter as a video**: each
+sampled frame with a p(done) bar, the trace-so-far sparkline, source frame and label. Rendered
+in-container and also written to the `egoverse-outputs` Volume
+(`modal volume ls egoverse-outputs /vlm_critic/<model_key>`). `--no-render` skips it.
+
+Trace fields:
 
 - `p_yes` — the trace, one value per sampled frame (**this is the confidence meter**)
 - `source_indices` — maps trace position back to original episode frame number
