@@ -12,14 +12,19 @@ every clip, fused into one verdict per episode.
 | signal | how | tagged success | failure prevalence |
 |---|---|---|---|
 | **SAM 3** geometry | text-prompted masks for `cup`, `saucer`; is the cup centroid inside the saucer box at the end? | 36/50 | 28% |
-| **Qwen3-VL-8B** | p("Yes") from logits to *"is the cup resting on the saucer?"*, last quarter of frames | 39/50 | 22% |
-| **PaliGemma2-3B** | same question, VQA-style prompt | 42/50 | 16% |
-| **Cosmos-Reason2-8B** | same question, embodied-reasoning fine-tune of Qwen3-VL | 34/50 | 32% |
-| **Fused** = mean(SEG, mean of VLMs) ≥ 0.5 | geometry and language weighted equally | **35/50** | **30%** |
+| **Qwen3-VL-8B** | p("Yes") from logits to *"is the cup resting on the saucer?"*, last quarter of frames, 3 fps | 33/50 | 34% |
+| **PaliGemma2-3B** | same question, VQA-style prompt | 41/50 | 18% |
+| **Cosmos-Reason2-8B** | same question, embodied-reasoning fine-tune of Qwen3-VL | 37/50 | 26% |
+| **Fused** = mean(SEG, mean of VLMs) ≥ 0.5 | geometry and language weighted equally | **34/50** | **32%** |
 
-**Agreement:** 27/50 clips unanimous across all four signals, 37/50 with ≥3 of 4, 6 split 2–2.
+**Agreement:** 26/50 clips unanimous across all four signals, 37/50 with ≥3 of 4, 6 split 2–2.
 Per-episode votes: [`results/cup50_final.md`](results/cup50_final.md). Two independent kinds of
-evidence — geometry and language — land on the same prevalence (28% vs 30%).
+evidence — geometry and language — land on the same prevalence (28% vs 32%).
+
+**Robustness to sampling rate:** the same audit at 1 fps (7 frames/clip from the HF parquet
+instead of 20 from the 30 fps source) gives 35/15, 30% — **1 verdict out of 50 differs**, 27/50
+unanimous. Individual models move more (Qwen 39→33 tagged success, Cosmos 34→37); the fusion
+absorbs it. [`results/cup50_1fps_final.md`](results/cup50_1fps_final.md).
 
 <table><tr>
 <td><img src="demo/gifs/sam3_cup50_10fps_success.gif" width="440"><br><sub>SAM 3 at 10 fps: <code>hand</code>, <code>cup</code>, <code>saucer</code> from text prompts — a unanimous success (4/4)</sub></td>
