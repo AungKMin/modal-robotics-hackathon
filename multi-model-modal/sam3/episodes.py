@@ -184,6 +184,21 @@ class EpisodeSegmenter:
         )
         return frames, source_indices, attrs
 
+    def _held_overlay_frames(self, episode, camera, n_src, source_indices, dets):
+        """Yield every source frame 0..n_src-1 overlaid with the latest sampled detections."""
+        root = zarr.open_group(str(_episodes_root() / episode), mode="r")
+        arr = root[camera]
+        sampled = sorted(dets)
+        j = 0
+        chunk = 64
+        for start in range(0, n_src, chunk):
+            idxs = list(range(start, min(n_src, start + chunk)))
+            for i, blob in zip(idxs, arr[idxs]):
+                while j + 1 < len(sampled) and source_indices[sampled[j + 1]] <= i:
+                    j += 1
+                frame = np.array(PILImage.open(io.BytesIO(blob)).convert("RGB"))
+                yield _draw_overlay(frame, _unpack_dets(dets[sampled[j]]), i)
+
     @modal.method()
     def segment_episode(
         self,
@@ -194,6 +209,7 @@ class EpisodeSegmenter:
         max_frames: Optional[int] = None,
         return_masks: bool = False,
         render: bool = True,
+        render_full_fps: bool = True,
     ) -> dict:
         frames, source_indices, attrs = self._read_frames(
             episode, camera, stride, max_frames
@@ -209,25 +225,33 @@ class EpisodeSegmenter:
         self.processor.add_text_prompt(session, prompts)
 
         per_frame = {}
-        rendered = []
+        dets = {}  # sampled idx -> bit-packed masks + boxes, kept for rendering
         for model_outputs in self.model.propagate_in_video_iterator(inference_session=session):
             out = self.processor.postprocess_outputs(session, model_outputs)
             idx = model_outputs.frame_idx
             per_frame[idx] = _summarise(out, return_masks)
             if render:
-                # Draw while the full-resolution masks are still in memory — no need to
-                # round-trip them through a sidecar to make the video.
-                rendered.append(
-                    _draw_overlay(frames[idx], out, source_indices[idx])
-                )
+                dets[idx] = _pack_dets(out)
 
         torch.cuda.empty_cache()
 
         fps = float(attrs.get("fps") or 30.0)
         overlay_mp4 = None
-        if render and rendered:
-            # Play back at fps/stride so the video runs in real time despite subsampling.
-            overlay_mp4 = _encode_mp4(rendered, max(1, round(fps / max(1, stride))))
+        if render and dets:
+            if render_full_fps and stride > 1:
+                # Every source frame at native fps; each frame wears the masks of the most
+                # recent sampled frame. Smooth video, inference cost unchanged.
+                n_src = source_indices[-1] + 1
+                overlay_mp4 = _encode_mp4_stream(
+                    self._held_overlay_frames(episode, camera, n_src, source_indices, dets),
+                    int(round(fps)),
+                )
+            else:
+                overlay_mp4 = _encode_mp4(
+                    [_draw_overlay(frames[i], _unpack_dets(dets[i]), source_indices[i])
+                     for i in sorted(dets)],
+                    max(1, round(fps / max(1, stride))),
+                )
             out_path = f"{OUTPUTS_DIR}/sam3/{episode}_overlay.mp4"
             import os
             os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -260,20 +284,71 @@ class EpisodeSegmenter:
         }
 
 
-def _draw_overlay(frame: "np.ndarray", out: dict, source_idx: int) -> "np.ndarray":
+def _pack_dets(out: dict) -> list:
+    """Compact per-frame detections: (id, score, box, packed mask, shape). ~38KB per mask."""
+    ids = out["object_ids"].tolist()
+    masks = out["masks"].cpu().numpy().astype(bool)
+    boxes = out["boxes"].cpu().numpy()
+    scores = out["scores"].tolist()
+    return [
+        (int(ids[i]), float(scores[i]), [float(v) for v in boxes[i]],
+         np.packbits(masks[i]).tobytes(), masks[i].shape)
+        for i in range(len(ids))
+    ]
+
+
+def _unpack_dets(packed: list) -> list:
+    out = []
+    for obj_id, score, box, pb, shape in packed:
+        m = np.unpackbits(np.frombuffer(pb, dtype=np.uint8))[: shape[0] * shape[1]]
+        out.append((obj_id, score, box, m.reshape(shape).astype(bool)))
+    return out
+
+
+def _encode_mp4_stream(frame_iter, fps: int) -> bytes:
+    """Like _encode_mp4 but consumes a generator, so long episodes never sit in RAM."""
+    import av
+
+    buf = io.BytesIO()
+    container = av.open(buf, mode="w", format="mp4")
+    stream = None
+    w = h = w2 = h2 = 0
+    for f in frame_iter:
+        if stream is None:
+            h, w = f.shape[:2]
+            w2, h2 = w + (w % 2), h + (h % 2)
+            try:
+                stream = container.add_stream("libx264", rate=fps)
+                stream.options = {"crf": "23", "preset": "veryfast"}
+            except Exception:
+                stream = container.add_stream("mpeg4", rate=fps)
+            stream.width, stream.height, stream.pix_fmt = w2, h2, "yuv420p"
+        if (w2, h2) != (w, h):
+            padded = np.zeros((h2, w2, 3), dtype=np.uint8)
+            padded[:h, :w] = f
+            f = padded
+        vf = av.VideoFrame.from_ndarray(np.ascontiguousarray(f), format="rgb24")
+        for packet in stream.encode(vf):
+            container.mux(packet)
+    if stream is not None:
+        for packet in stream.encode():
+            container.mux(packet)
+    container.close()
+    return buf.getvalue()
+
+
+def _draw_overlay(frame: "np.ndarray", dets: list, source_idx: int) -> "np.ndarray":
     """
     Tint each mask in its track's colour, box it, label `id:score`, stamp the source frame.
-
-    Runs on the raw postprocess_outputs dict so it can use the full-resolution masks
-    directly. Returns an RGB uint8 array the same size as `frame`.
+    `dets` is a list of (obj_id, score, box_xyxy, mask_bool) — see _pack_dets/_unpack_dets.
     """
     from PIL import ImageDraw
 
     arr = frame.astype(np.float32)
-    object_ids = out["object_ids"].tolist()
-    masks = out["masks"].cpu().numpy().astype(bool)
-    boxes = out["boxes"].cpu().numpy()
-    scores = out["scores"].tolist()
+    object_ids = [d[0] for d in dets]
+    scores = [d[1] for d in dets]
+    boxes = [d[2] for d in dets]
+    masks = [d[3] for d in dets]
 
     for i, obj_id in enumerate(object_ids):
         m = masks[i]
@@ -374,6 +449,7 @@ def main(
     out: str = "sam3_out/episodes",
     return_masks: bool = False,
     render: bool = True,
+    render_full_fps: bool = True,
 ):
     """
     Fan out over every episode in the Volume.
@@ -426,6 +502,7 @@ def main(
             "max_frames": max_frames or None,
             "return_masks": return_masks,
             "render": render,
+            "render_full_fps": render_full_fps,
         },
         return_exceptions=True,
     )
