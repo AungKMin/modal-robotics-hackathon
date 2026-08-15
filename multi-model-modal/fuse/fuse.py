@@ -189,17 +189,32 @@ def acc(pred: list, labels: list) -> float:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="qwen", help="vlm_critic_out/<model>")
-    ap.add_argument("--vlm-thresh", type=float, default=0.5)
+    ap.add_argument("--vlm-thresh", default="median",
+                    help="float, or 'median' = calibrate at the set median (default)")
     ap.add_argument("--seg-thresh", type=float, default=0.5)
     ap.add_argument("--out", default="fuse_out")
+    ap.add_argument("--vlm-dir", default=None, help="default vlm_critic_out/<model>")
+    ap.add_argument("--seg-dir", default="sam3_out/episodes")
+    ap.add_argument("--geo-dir", default="geometric_out", help="'none' to disable")
     args = ap.parse_args()
 
-    vlm = load_dir(Path("vlm_critic_out") / args.model)
-    seg = load_dir(Path("sam3_out") / "episodes")
-    geo = load_dir(Path("geometric_out"))
+    vlm = load_dir(Path(args.vlm_dir) if args.vlm_dir else Path("vlm_critic_out") / args.model)
+    seg = load_dir(Path(args.seg_dir))
+    geo = load_dir(Path(args.geo_dir)) if args.geo_dir != "none" else {}
     print(f"loaded: vlm={len(vlm)} ({args.model})  seg={len(seg)}  geo={len(geo)}")
 
     episodes = sorted(set(vlm) | set(seg) | set(geo))
+    # VLM calibration: p(yes) is often systematically low or high for a prompt, so a fixed
+    # 0.5 can put every episode on one side even when the RANKING separates the classes
+    # (AUROC is threshold-free and reports that). 'median' thresholds at the set median.
+    lates = [vlm_features(v).get("p_done_late") for v in vlm.values()]
+    lates = [x for x in lates if x is not None]
+    if args.vlm_thresh == "median":
+        vlm_thresh = float(np.median(lates)) if lates else 0.5
+        vlm_thresh_note = f"median={vlm_thresh:.4f}"
+    else:
+        vlm_thresh = float(args.vlm_thresh)
+        vlm_thresh_note = f"{vlm_thresh:.2f}"
     rows = []
     for ep in episodes:
         rec = vlm.get(ep) or seg.get(ep) or geo.get(ep)
@@ -211,11 +226,17 @@ def main():
 
         # per-criterion predictions
         if "vlm.p_done_late" in row:
-            row["pred.vlm"] = "success" if row["vlm.p_done_late"] >= args.vlm_thresh else "failure"
+            row["pred.vlm"] = "success" if row["vlm.p_done_late"] > vlm_thresh else "failure"
         if "seg.seg_score" in row:
             row["pred.seg"] = "success" if row["seg.seg_score"] >= args.seg_thresh else "failure"
         # fused: mean of available continuous signals; GEO veto
-        sig = [row[k] for k in ("vlm.p_done_late", "seg.seg_score") if k in row]
+        # Fuse on calibrated signals: VLM as 0/1 above/below its threshold blended with the
+        # raw late p, so a confidently-high VLM still outranks a marginal one.
+        sig = []
+        if "vlm.p_done_late" in row:
+            sig.append(0.5 * float(row["vlm.p_done_late"] > vlm_thresh) + 0.5 * min(1.0, row["vlm.p_done_late"] / max(1e-9, 2 * vlm_thresh)) if vlm_thresh > 0 else row["vlm.p_done_late"])
+        if "seg.seg_score" in row:
+            sig.append(row["seg.seg_score"])
         if sig:
             score = float(np.mean(sig))
             if "geo.any_hold" in row and not row["geo.any_hold"]:
@@ -229,12 +250,24 @@ def main():
 
     # ---- report
     lines = []
-    lines.append(f"# Fusion eval — {len(labelled)} labelled episodes "
-                 f"({sum(y)} success / {len(y)-sum(y)} failure), VLM={args.model}\n")
+    # Prevalence audit: works with or without labels. Track 3's deliverable for an
+    # unlabelled set is exactly this line.
+    tagged = [r for r in rows if r.get("pred.fused") or r.get("pred.vlm") or r.get("pred.seg")]
+    if tagged:
+        preds = [r.get("pred.fused") or r.get("pred.vlm") or r.get("pred.seg") for r in tagged]
+        nf = sum(p == "failure" for p in preds)
+        lines.append(f"# Prevalence audit — {len(tagged)} episodes tagged: "
+                     f"{len(tagged)-nf} success / {nf} failure "
+                     f"(**{100*nf/len(tagged):.0f}% failure prevalence**)\n")
+    if not labelled:
+        lines.append("_No ground-truth labels in this set; accuracy/AUROC not computed._\n")
+    if labelled:
+        lines.append(f"# Fusion eval — {len(labelled)} labelled episodes "
+                     f"({sum(y)} success / {len(y)-sum(y)} failure), VLM={args.model}\n")
     lines.append("| criterion | n | accuracy | AUROC | note |")
     lines.append("|---|---|---|---|---|")
     for name, pred_key, score_key, note in [
-        ("VLM  p_done_late >= %.2f" % args.vlm_thresh, "pred.vlm", "vlm.p_done_late", "logit-derived, late window"),
+        ("VLM  p_done_late > %s" % vlm_thresh_note, "pred.vlm", "vlm.p_done_late", "logit-derived, late window"),
         ("SEG  cup-on-saucer >= %.2f" % args.seg_thresh, "pred.seg", "seg.seg_score",
          "fallback=cup_settled where no saucer track"),
         ("FUSED mean(VLM,SEG) w/ GEO veto", "pred.fused", "fused.score", "any_hold=False -> failure"),
@@ -261,11 +294,11 @@ def main():
     lines.append("\n## Per-episode\n")
     lines.append("| episode | label | p_done_late | seg_score | any_hold | fused | pred | ok |")
     lines.append("|---|---|---|---|---|---|---|---|")
-    for r in labelled:
+    for r in rows:
         def f(k, fmt="{:.2f}"):
             return fmt.format(r[k]) if k in r and r[k] is not None else "—"
         pred = r.get("pred.fused") or r.get("pred.vlm") or r.get("pred.seg") or "—"
-        ok = "✓" if pred == r["label"] else ("✗" if pred != "—" else "")
+        ok = "" if not r["label"] else ("✓" if pred == r["label"] else ("✗" if pred != "—" else ""))
         lines.append(f"| {r['episode']} | {r['label']} | {f('vlm.p_done_late')} | {f('seg.seg_score')} | "
                      f"{r.get('geo.any_hold', '—')} | {f('fused.score')} | {pred} | {ok} |")
 

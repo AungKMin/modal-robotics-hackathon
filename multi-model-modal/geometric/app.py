@@ -39,7 +39,11 @@ import modal
 app = modal.App(name="geometric-track")
 
 EPISODES_DIR = "/episodes"
-episodes_volume = modal.Volume.from_name("egoverse-episodes", create_if_missing=True)
+# Which Volume holds the episodes. Override per run, e.g. EPISODES_VOLUME=egoverse-cup50
+# (read at import time; `modal run` imports this file locally, so a shell env var works).
+import os as _os
+EPISODES_VOLUME = _os.environ.get("EPISODES_VOLUME", "egoverse-episodes")
+episodes_volume = modal.Volume.from_name(EPISODES_VOLUME, create_if_missing=True)
 
 image = modal.Image.debian_slim(python_version="3.12").uv_pip_install(
     "numpy>=2.0,<3", "zarr>=3.0.0", "numcodecs>=0.13.0"

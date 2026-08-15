@@ -41,7 +41,11 @@ MODELS = {
 }
 
 cache_volume = modal.Volume.from_name("hf-hub-cache", create_if_missing=True)
-episodes_volume = modal.Volume.from_name("egoverse-episodes", create_if_missing=True)
+# Which Volume holds the episodes. Override per run, e.g. EPISODES_VOLUME=egoverse-cup50
+# (read at import time; `modal run` imports this file locally, so a shell env var works).
+import os as _os
+EPISODES_VOLUME = _os.environ.get("EPISODES_VOLUME", "egoverse-episodes")
+episodes_volume = modal.Volume.from_name(EPISODES_VOLUME, create_if_missing=True)
 hf_secret = modal.Secret.from_name("huggingface-secret", required_keys=["HF_TOKEN"])
 # Rendered confidence-meter videos are written here as well as returned, so the demo
 # artefacts live in Modal storage independent of whoever ran the job.
@@ -74,10 +78,15 @@ with image.imports():
 
     from transformers import AutoModelForMultimodalLM, AutoProcessor
 
+# Ask about the GOAL STATE, not the process. A single frame cannot show whether a handover
+# happened, so "has the task been completed?" is unanswerable from one image and the model
+# says No everywhere (observed: p(yes) ~ 1e-4 on every frame of every episode). Whether the
+# cup is on the saucer *is* visible in a frame. Override per task with --question.
 QUESTION = (
     "Task: {task}\n"
-    "Look at the current state of the scene. "
-    "Has the task been completed successfully? Answer Yes or No."
+    "Look only at what is visible in this image. Is the final goal state of the task "
+    "achieved right now (the object is resting where the task says it should end up)? "
+    "Answer Yes or No."
 )
 
 
@@ -196,7 +205,7 @@ class Critic:
                     "role": "user",
                     "content": [
                         {"type": "image"},
-                        {"type": "text", "text": QUESTION.format(task=task)},
+                        {"type": "text", "text": self._question.format(task=task)},
                     ],
                 }
             ]
@@ -211,6 +220,11 @@ class Critic:
             probs = torch.softmax(logits, dim=-1)
             p_yes = probs[self.yes_ids].sum().item()
             p_no = probs[self.no_ids].sum().item()
+            top = torch.topk(probs, 5)
+            self._last_top = [
+                (self.processor.tokenizer.decode([int(i)]), round(float(v), 4))
+                for v, i in zip(top.values, top.indices)
+            ]
 
         total = p_yes + p_no
         # Degenerate case: the model put essentially no mass on either answer. Report the
@@ -226,6 +240,7 @@ class Critic:
         max_frames: Optional[int] = None,
         task_override: Optional[str] = None,
         render: bool = True,
+        question: Optional[str] = None,
     ) -> dict:
         images, source_indices, attrs = self._read_frames(
             episode, camera, stride, max_frames
@@ -233,7 +248,11 @@ class Critic:
         task = task_override or attrs.get("task_description") or attrs.get("task_name") or ""
         print(f"{episode}: {len(images)} frames (stride {stride})")
 
+        self._question = question or QUESTION
         trace = [self._p_yes(img, task) for img in images]
+        # What the model actually wanted to say on the LAST frame — the single most useful
+        # diagnostic when a trace looks flat.
+        last_top = getattr(self, "_last_top", None)
 
         task_name = attrs.get("task_name") or ""
         label = (
@@ -271,6 +290,8 @@ class Critic:
             "source_indices": source_indices,
             # The confidence meter (deliverable #2), one value per sampled frame.
             "p_yes": trace,
+            "question": self._question,
+            "last_frame_top_tokens": last_top,
             # Episode verdict (deliverable #1). Late frames carry the signal — a task is
             # judged by how it ended, not by its average over time, so summarising with a
             # mean would wash out exactly the evidence that matters.
@@ -365,6 +386,7 @@ def main(
     limit: int = 0,
     out: str = "vlm_critic_out",
     render: bool = True,
+    question: str = "",
 ):
     """
     Score every episode in the Volume and write one p(yes) trace per episode.
@@ -398,7 +420,8 @@ def main(
 
     results = Critic(model_key=model).score_episode.map(
         names,
-        kwargs={"camera": camera, "stride": stride, "max_frames": max_frames or None, "render": render},
+        kwargs={"camera": camera, "stride": stride, "max_frames": max_frames or None,
+                "render": render, "question": question or None},
         return_exceptions=True,
     )
 

@@ -41,7 +41,11 @@ MAX_CONTAINERS = 2
 
 cache_volume = modal.Volume.from_name("hf-hub-cache", create_if_missing=True)
 vllm_cache_volume = modal.Volume.from_name("vllm-cache", create_if_missing=True)
-episodes_volume = modal.Volume.from_name("egoverse-episodes", create_if_missing=True)
+# Which Volume holds the episodes. Override per run, e.g. EPISODES_VOLUME=egoverse-cup50
+# (read at import time; `modal run` imports this file locally, so a shell env var works).
+import os as _os
+EPISODES_VOLUME = _os.environ.get("EPISODES_VOLUME", "egoverse-episodes")
+episodes_volume = modal.Volume.from_name(EPISODES_VOLUME, create_if_missing=True)
 outputs_volume = modal.Volume.from_name("egoverse-outputs", create_if_missing=True)
 hf_secret = modal.Secret.from_name("huggingface-secret", required_keys=["HF_TOKEN"])
 

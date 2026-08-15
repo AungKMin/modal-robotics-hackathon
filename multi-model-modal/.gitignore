@@ -10,3 +10,5 @@ sam3_trace.json
 vlm_critic_out/
 geometric_out/
 fuse_out/
+sam3_out*/
+vlm_critic_out*/

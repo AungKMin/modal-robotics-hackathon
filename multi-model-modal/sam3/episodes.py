@@ -32,7 +32,11 @@ MODEL_REVISION_ID = "1aa50ce07302cb375f85d8084b68a0fb378b8d85"
 MAX_CONTAINERS = 4
 
 cache_volume = modal.Volume.from_name("hf-hub-cache", create_if_missing=True)
-episodes_volume = modal.Volume.from_name("egoverse-episodes", create_if_missing=True)
+# Which Volume holds the episodes. Override per run, e.g. EPISODES_VOLUME=egoverse-cup50
+# (read at import time; `modal run` imports this file locally, so a shell env var works).
+import os as _os
+EPISODES_VOLUME = _os.environ.get("EPISODES_VOLUME", "egoverse-episodes")
+episodes_volume = modal.Volume.from_name(EPISODES_VOLUME, create_if_missing=True)
 # Rendered overlays and traces are written here as well as returned to the caller, so the
 # artefacts survive in Modal storage independent of whoever ran the job.
 OUTPUTS_DIR = "/outputs"
