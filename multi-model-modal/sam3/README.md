@@ -50,6 +50,37 @@ python sam3/try.py
 python sam3/try.py --video episode.mp4 --prompt "the towel" --prompt "hand" --max-frames 200
 ```
 
+## Running on EgoVerse episodes
+
+`sam3/episodes.py` reads zarr episodes from a Modal Volume instead of shipping frames over
+the wire. Upload once:
+
+```bash
+modal volume create egoverse-episodes
+modal volume put egoverse-episodes /home/asubuntu/egoverse_data   # 816 MB, 20 episodes
+```
+
+Then:
+
+```bash
+modal run sam3/episodes.py --limit 2 --max-frames 40        # shakeout first
+modal run sam3/episodes.py --prompts "cup,saucer" --stride 5
+```
+
+Use the **file path**, not the module form. `episodes.py` is standalone: `modal run` on a
+file path mounts only that file into the container, so a `from sam3.app import ...` would
+fail there with `ModuleNotFoundError`. The pins in `episodes.py` therefore duplicate
+`app.py`'s and must be kept in step by hand.
+
+**`--stride` is the cost knob.** The 20-episode slice is 21,072 frames; stride 5 means ~4,200
+frames of real inference. Episodes run from 338 to 3,010 frames, so they are wildly uneven —
+`.map()` handles that, but the slowest episode sets wall-clock.
+
+Each trace carries `source_indices`, mapping SAM 3's 0..N-1 sequence position back to the
+original episode frame number. Failure-onset localization is meaningless without it.
+
+Traces also carry `label`, parsed from `task_name` — see below.
+
 ## Visualizing masks
 
 Masks are off by default, so re-run with them on, then render:
