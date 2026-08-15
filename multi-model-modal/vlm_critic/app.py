@@ -38,7 +38,13 @@ MODELS = {
     # Purpose-built for physical/embodied reasoning, which is exactly the critic role, so
     # it is the one to beat. The attached HF_TOKEN secret authorises the download.
     "cosmos": "nvidia/Cosmos-Reason2-8B",
+    # GATED (Gemma terms) — accept at https://huggingface.co/google/paligemma2-3b-mix-448.
+    # Not a chat model: a SigLIP+Gemma2 VQA model that answers "answer en <q>" prompts with
+    # a short word. 3B, cheap, and a genuinely different lineage from the two above.
+    "paligemma": "google/paligemma2-3b-mix-448",
 }
+# Which models take a chat template (Qwen-family) vs PaliGemma's raw "answer en" prefix.
+CHAT_MODELS = {"qwen", "cosmos"}
 
 cache_volume = modal.Volume.from_name("hf-hub-cache", create_if_missing=True)
 # Which Volume holds the episodes. Override per run, e.g. EPISODES_VOLUME=egoverse-cup50
@@ -76,7 +82,11 @@ with image.imports():
     import zarr
     from PIL import Image as PILImage
 
-    from transformers import AutoModelForMultimodalLM, AutoProcessor
+    from transformers import (
+        AutoModelForMultimodalLM,
+        AutoProcessor,
+        PaliGemmaForConditionalGeneration,
+    )
 
 # Ask about the GOAL STATE, not the process. A single frame cannot show whether a handover
 # happened, so "has the task been completed?" is unanswerable from one image and the model
@@ -152,9 +162,14 @@ class Critic:
         model_id = MODELS[self.model_key]
         print(f"loading {model_id}")
         self.processor = AutoProcessor.from_pretrained(model_id)
-        self.model = AutoModelForMultimodalLM.from_pretrained(
-            model_id, dtype=torch.bfloat16, device_map="cuda"
-        )
+        if self.model_key in CHAT_MODELS:
+            self.model = AutoModelForMultimodalLM.from_pretrained(
+                model_id, dtype=torch.bfloat16, device_map="cuda"
+            )
+        else:
+            self.model = PaliGemmaForConditionalGeneration.from_pretrained(
+                model_id, dtype=torch.bfloat16, device_map="cuda"
+            )
         self.model.eval()
 
         tok = self.processor.tokenizer
@@ -200,21 +215,31 @@ class Critic:
         a `@torch....` decorator would NameError before anything reached a container.
         """
         with torch.inference_mode():
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image"},
-                        {"type": "text", "text": self._question.format(task=task)},
-                    ],
-                }
-            ]
-            prompt = self.processor.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-            )
-            inputs = self.processor(
-                text=[prompt], images=[image], return_tensors="pt"
-            ).to(self.model.device)
+            q = self._question.format(task=task)
+            if self.model_key in CHAT_MODELS:
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "image"},
+                            {"type": "text", "text": q},
+                        ],
+                    }
+                ]
+                prompt = self.processor.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True
+                )
+                inputs = self.processor(
+                    text=[prompt], images=[image], return_tensors="pt"
+                ).to(self.model.device)
+            else:
+                # PaliGemma: the processor inserts the image tokens itself; the "answer en"
+                # prefix is how the mix checkpoints were trained to do VQA. Keep the question
+                # to one line — it is a short-answer model, not an instruction follower.
+                short_q = q.split("\n")[-1].strip()
+                inputs = self.processor(
+                    images=image, text=f"answer en {short_q}", return_tensors="pt"
+                ).to(self.model.device)
 
             logits = self.model(**inputs).logits[0, -1].float()
             probs = torch.softmax(logits, dim=-1)
