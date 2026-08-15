@@ -13,6 +13,8 @@ https://github.com/user-attachments/assets/bf97fde3-0637-4622-8e00-3abb104e7c60
 
 > One-slide version: [`SLIDE.pptx`](SLIDE.pptx) · [`SLIDE.png`](SLIDE.png) · [`SLIDE.html`](SLIDE.html) · [`SLIDE.md`](SLIDE.md)
 
+Refer to [results](https://github.com/AungKMin/modal-robotics-hackathon/tree/main/results) for a detailed summary.
+
 **Does the demo succeed? Ask the VLM's logits, not its words.**
 Per-frame `p(goal state reached)` read from Qwen3-VL / Cosmos-Reason2 / PaliGemma logits →
 confidence meter → episode tag → prevalence audit. Plus SAM 3 text-prompted masks
