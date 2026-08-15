@@ -36,6 +36,8 @@ container** and written to both a local `<model>_out/` folder and the `egoverse-
 ([somundane/egoverse-cup50](https://huggingface.co/datasets/somundane/egoverse-cup50)), SEG criterion:
 **36 success / 14 failure → 28% failure prevalence.**
 
+**Cross-model report with graphs: [`results/`](results/README.md)** — ROC curves, p(done) traces per episode, tags per dataset × model (Qwen3-VL-8B, PaliGemma 2, Cosmos-Reason2-8B), model agreement, and what each model's top tokens actually were.
+
 Full tables: [`demo/eva_fusion_summary.md`](demo/eva_fusion_summary.md),
 [`demo/cup50_prevalence_summary.md`](demo/cup50_prevalence_summary.md).
 Sample SAM 3 overlays (10 fps human clips, 6 fps robot episodes): [`demo/`](demo/).
