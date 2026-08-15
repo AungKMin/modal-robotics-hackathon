@@ -118,6 +118,12 @@ view at the end and `late` reads No for everything (0/8). The same statistic on 
 eva slice over-calls success (17/20), because a cup passing over the saucer mid-attempt also
 peaks — so it is a per-dataset choice, stated, and both counts are shown for every set.
 
+**Final verdict on cup50 — SAM 3 + all three VLMs combined.** Success = the cup ends up on
+the saucer; failure = it does not. `final = mean(SEG, mean(VLMs)) ≥ 0.5`, geometry and VLMs
+weighted equally so neither can outvote the other alone. **36 success / 14 failure → 28% failure
+prevalence** over 50 episodes; on the 9 with every signal, 8/1, with per-episode vote counts.
+Table: [`results/cup50_final.md`](results/cup50_final.md).
+
 **One aria video split into its attempts** — a 2-minute egocentric episode is not one demo,
 it's the person placing the cup again and again. Segmenting on cup rests *relative to the
 saucer* (so head motion cancels) and scoring each pick-up→set-down transition:
