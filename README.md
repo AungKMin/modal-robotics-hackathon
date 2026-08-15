@@ -65,7 +65,7 @@ plus 16 returns to the start position correctly not counted.
 (16/pass) on an H100; all 50 clips × 3 models ran in minutes. A full-dataset sweep is a `.map()`.
 
 Graphs, ROC, per-episode verdicts and each model's actual top tokens: [`results/`](results/README.md).
-Sample overlays and confidence-meter videos: [`demo/`](demo/).
+Sample overlays, hand/cup/saucer segmentation on egocentric video, the disputed clips, and confidence-meter videos with stills: [`demo/`](demo/README.md).
 
 ## What we built
 
