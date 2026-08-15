@@ -412,6 +412,7 @@ def main(
     out: str = "vlm_critic_out",
     render: bool = True,
     question: str = "",
+    match: str = "",
 ):
     """
     Score every episode in the Volume and write one p(yes) trace per episode.
@@ -434,6 +435,8 @@ def main(
             "No episodes in the Volume. Upload them first:\n"
             "  modal volume put egoverse-episodes /home/asubuntu/egoverse_data"
         )
+    if match:
+        episodes = [e for e in episodes if e["episode"].startswith(match)]
     if limit:
         episodes = episodes[:limit]
 
