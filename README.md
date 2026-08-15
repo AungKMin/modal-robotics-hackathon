@@ -11,7 +11,7 @@ https://github.com/user-attachments/assets/bf97fde3-0637-4622-8e00-3abb104e7c60
 
 ## Results at a glance
 
-> One-slide version: [`SLIDE.html`](SLIDE.html) (open in a browser) · [`SLIDE.md`](SLIDE.md)
+> One-slide version: [`SLIDE.pptx`](SLIDE.pptx) · [`SLIDE.png`](SLIDE.png) · [`SLIDE.html`](SLIDE.html) · [`SLIDE.md`](SLIDE.md)
 
 **Does the demo succeed? Ask the VLM's logits, not its words.**
 Per-frame `p(goal state reached)` read from Qwen3-VL / Cosmos-Reason2 / PaliGemma logits →
