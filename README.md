@@ -38,6 +38,18 @@ container** and written to both a local `<model>_out/` folder and the `egoverse-
 ([somundane/egoverse-cup50](https://huggingface.co/datasets/somundane/egoverse-cup50)), SEG criterion:
 **36 success / 14 failure → 28% failure prevalence.**
 
+**Human sets, three critics** (8 episodes each, `p(done)` ≥ 0.5 → success):
+
+| set | statistic | Qwen3-VL-8B | PaliGemma2-3B | Cosmos-Reason2-8B |
+|---|---|---|---|---|
+| cup50 short clips | `late` (end of clip) | 8/9 success | 3/8 | 7/8 |
+| aria 80–140 s egocentric | `max` (peak) | 8/8 success | 8/8 | 6/8 |
+
+Why `max` for aria: the person looks away after placing the cup, so the goal state is not in
+view at the end and `late` reads No for everything (0/8). The same statistic on the labelled
+eva slice over-calls success (17/20), because a cup passing over the saucer mid-attempt also
+peaks — so it is a per-dataset choice, stated, and both counts are shown for every set.
+
 **Cross-model report with graphs: [`results/`](results/README.md)** — ROC curves, p(done) traces per episode, tags per dataset × model (Qwen3-VL-8B, PaliGemma 2, Cosmos-Reason2-8B), model agreement, and what each model's top tokens actually were.
 
 Full tables: [`demo/eva_fusion_summary.md`](demo/eva_fusion_summary.md),

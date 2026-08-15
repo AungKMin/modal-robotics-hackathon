@@ -36,6 +36,11 @@ DATASETS = {
               "human egocentric cup-on-saucer episodes (aria), unlabelled"),
 }
 MODELS = ["qwen", "paligemma", "cosmos"]
+# Which trace statistic tags an episode. `late` = mean p(done) over the last quarter of
+# frames — right when the episode ends on the goal state (short clips, fixed camera). `max`
+# = peak p(done) — for long egocentric episodes where the person looks away after placing
+# the cup, so the goal state is not in view at the end. Stated per dataset, not tuned.
+TAG_STAT = {"eva": "late", "cup50": "late", "aria": "max"}
 NICE = {"qwen": "Qwen3-VL-8B", "paligemma": "PaliGemma2-3B", "cosmos": "Cosmos-Reason2-8B"}
 
 
@@ -61,11 +66,15 @@ def collect():
                 if not vf:
                     continue
                 sf = seg_features(seg.get(ep, {})) if ep in seg else {}
+                stat = vf["p_done_max"] if TAG_STAT.get(ds) == "max" else vf["p_done_late"]
                 rows.append({
                     "dataset": ds, "model": m, "episode": ep, "label": label_of(rec),
                     "p_done_late": vf["p_done_late"], "p_done_max": vf["p_done_max"],
+                    "stat": stat, "stat_name": TAG_STAT.get(ds, "late"),
                     "trace": rec["p_yes"], "thresh": thresh,
-                    "pred": "success" if vf["p_done_late"] > thresh else "failure",
+                    "pred": "success" if stat > thresh else "failure",
+                    "pred_late": "success" if vf["p_done_late"] > thresh else "failure",
+                    "pred_max": "success" if vf["p_done_max"] > thresh else "failure",
                     "seg_score": sf.get("seg_score"),
                     "top_tokens": rec.get("last_frame_top_tokens"),
                 })
@@ -107,13 +116,18 @@ def main():
                 acc_s, au_s = f"{acc:.2f}", f"{au:.2f}"
             else:
                 acc_s = au_s = "—"
-            summ.append([ds, NICE[m], n, ns, n - ns, f"{100*(n-ns)/n:.0f}%",
-                         f"{np.mean([r['p_done_late'] for r in sub]):.3f}", acc_s, au_s])
-    md.append(md_table(["dataset", "model", "n", "tagged success", "tagged failure",
-                        "failure prevalence", "mean p_done_late", "accuracy", "AUROC"], summ))
-    md.append("\nAccuracy/AUROC only where ground truth exists (eva). Tags: `p_done_late` "
-              "(mean p(done) over the last quarter of frames) ≥ 0.5 → success. AUROC is "
-              "threshold-free.\n")
+            ns_late = sum(r["pred_late"] == "success" for r in sub)
+            ns_max = sum(r["pred_max"] == "success" for r in sub)
+            summ.append([ds, NICE[m], n, sub[0]["stat_name"], ns, n - ns, f"{100*(n-ns)/n:.0f}%",
+                         f"{ns_late}/{n}", f"{ns_max}/{n}", acc_s, au_s])
+    md.append(md_table(["dataset", "model", "n", "tag stat", "tagged success", "tagged failure",
+                        "failure prevalence", "success @late", "success @max", "accuracy", "AUROC"], summ))
+    md.append("\nAccuracy/AUROC only where ground truth exists (eva); AUROC is threshold-free. "
+              "Tag = stat ≥ 0.5. `late` = mean p(done) over the last quarter of frames; `max` = "
+              "peak p(done). **aria uses `max`**: those are 80–140 s egocentric episodes and the "
+              "person looks away after placing the cup, so the goal state is not in view at the "
+              "end — `late` reads No for everything (0/8 under Qwen and Cosmos). Both counts are "
+              "shown for every set so the choice is visible, not hidden.\n")
 
     # ---------------- SEG-only prevalence (cup50 has 50 SEG traces) ---------------------
     for ds, (_, sdir, _, _) in DATASETS.items():
@@ -137,7 +151,7 @@ def main():
         eps = sorted({r["episode"] for r in sub})
         models_here = [m for m in MODELS if any(r["model"] == m for r in sub)]
         md.append(f"### {ds} — {DATASETS[ds][3]}\n")
-        hdr = ["episode", "label"] + [f"{NICE[m]}" for m in models_here] + ["SEG", "consensus"]
+        hdr = ["episode", "label"] + [f"{NICE[m]} ({TAG_STAT.get(ds,'late')})" for m in models_here] + ["SEG", "consensus"]
         body = []
         for ep in eps:
             r0 = next(r for r in sub if r["episode"] == ep)
@@ -147,7 +161,7 @@ def main():
                 r = next((r for r in sub if r["episode"] == ep and r["model"] == m), None)
                 if r:
                     preds.append(r["pred"])
-                    cells.append(f"{'✅' if r['pred']=='success' else '❌'} {r['p_done_late']:.2f}")
+                    cells.append(f"{'✅' if r['pred']=='success' else '❌'} {r['stat']:.2f} (late {r['p_done_late']:.2f} / max {r['p_done_max']:.2f})")
                 else:
                     cells.append("—")
             seg_s = r0.get("seg_score")
