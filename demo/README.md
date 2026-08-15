@@ -27,17 +27,18 @@ The first episode is the one split into 25 attempts in
 
 ## The verdicts, on video — cup50 final determination
 
-From [`results/cup50_final.md`](../results/cup50_final.md): SAM 3 + three VLMs, `final = mean(SEG, mean(VLMs))`.
+From [`results/cup50_final.md`](../results/cup50_final.md): SAM 3 + three VLMs at 3 fps, `final = mean(SEG, mean(VLMs))`.
 
 | clip | SEG | Cosmos | PaliGemma | Qwen | final | still (end of clip) |
 |---|---|---|---|---|---|---|
-| `unanimous_success_692e9892…` | 1.00 | 0.96 | 0.79 | 1.00 | ✅ 4/4 | <img src="stills/unanimous_success_692e98927641010d04354574_end.jpg" width="260"> |
+| `unanimous_success_692e9892…` | 1.00 | 0.87 | 0.81 | 0.96 | ✅ 4/4 | <img src="stills/unanimous_success_692e98927641010d04354574_end.jpg" width="260"> |
 | `unanimous_failure_2026-01-11-23-11…` | 0.00 | 0.00 | 0.07 | 0.00 | ❌ 0/4 | <img src="stills/unanimous_failure_2026-01-11-23-11-22-998000_end.jpg" width="260"> |
-| `disputed_seg_yes_vlm_split_692ea3be…` | 1.00 | 0.32 | 0.58 | 0.00 | ✅ 2/4 — geometry carried it | <img src="stills/disputed_seg_yes_vlm_split_692ea3beffdc0ca6345c4246_end.jpg" width="260"> |
-| `disputed_seg_no_vlm_yes_692ea671…` | 0.00 | 0.73 | 0.74 | 0.56 | ❌ 3/4 votes yes, but SEG 0.00 pulled the mean under 0.5 | <img src="stills/disputed_seg_no_vlm_yes_692ea671dbc4294a49cc727e_end.jpg" width="260"> |
+| `disputed_seg_yes_vlm_split_692ea3be…` | 1.00 | 0.74 | 0.46 | 0.63 | ✅ 3/4 — was 2/4 at 1 fps; at 3 fps Cosmos and Qwen joined the geometry | <img src="stills/disputed_seg_yes_vlm_split_692ea3beffdc0ca6345c4246_end.jpg" width="260"> |
+| `disputed_seg_no_vlm_yes_692ea671…` | 0.00 | 0.32 | 0.86 | 0.04 | ❌ 1/4 — was 3 VLM yes-votes at 1 fps; at 3 fps Qwen and Cosmos joined SEG | <img src="stills/disputed_seg_no_vlm_yes_692ea671dbc4294a49cc727e_end.jpg" width="260"> |
 
-The two disputed rows are the ones to scrub through: they show what each signal is actually
-looking at when geometry and language disagree.
+The two `disputed_*` clips were 2–2 and 3–1 splits at 1 fps; at 3 fps both resolved toward the geometry.
+They are still the ones to scrub through — they show what each signal is looking at when the
+language models are uncertain, and why sampling density matters for the VLMs and not for SEG.
 
 ## VLM confidence meters — deliverable #2 as a video
 

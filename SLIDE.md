@@ -32,10 +32,10 @@ absorbs it. [`results/cup50_1fps_final.md`](results/cup50_1fps_final.md).
 </tr></table>
 
 <table><tr>
-<td><img src="demo/stills/unanimous_success_692e98927641010d04354574_end.jpg" width="300"><br><sub>✅ unanimous success — SEG 1.00 · VLMs 0.96/0.79/1.00</sub></td>
+<td><img src="demo/stills/unanimous_success_692e98927641010d04354574_end.jpg" width="300"><br><sub>✅ unanimous success — SEG 1.00 · VLMs 0.87/0.81/0.96</sub></td>
 <td><img src="demo/stills/unanimous_failure_2026-01-11-23-11-22-998000_end.jpg" width="300"><br><sub>❌ unanimous failure — SEG 0.00 · VLMs 0.00/0.07/0.00</sub></td>
-<td><img src="demo/stills/disputed_seg_yes_vlm_split_692ea3beffdc0ca6345c4246_end.jpg" width="300"><br><sub>disputed — SEG 1.00, VLMs 0.32/0.58/0.00 → ✅ geometry carried it</sub></td>
-<td><img src="demo/stills/disputed_seg_no_vlm_yes_692ea671dbc4294a49cc727e_end.jpg" width="300"><br><sub>disputed — SEG 0.00, VLMs 0.73/0.74/0.56 → ❌ geometry pulled the mean under 0.5</sub></td>
+<td><img src="demo/stills/disputed_seg_yes_vlm_split_692ea3beffdc0ca6345c4246_end.jpg" width="300"><br><sub>SEG 1.00, VLMs 0.74/0.46/0.63 → ✅ 3/4 (was 2/4 at 1 fps: denser sampling brought the VLMs to the geometry)</sub></td>
+<td><img src="demo/stills/disputed_seg_no_vlm_yes_692ea671dbc4294a49cc727e_end.jpg" width="300"><br><sub>SEG 0.00, VLMs 0.32/0.86/0.04 → ❌ 1/4 (was 3 VLM yes-votes at 1 fps)</sub></td>
 </tr></table>
 
 <table><tr>
