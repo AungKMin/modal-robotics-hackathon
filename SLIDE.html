@@ -3,13 +3,13 @@
 <style>
   :root { --ink:#111; --muted:#555; --line:#e6e6e6; --good:#2a9d3a; --bad:#d63a3a; --accent:#1982c4; }
   html,body { margin:0; background:#f3f3f3; font-family: Inter, -apple-system, Segoe UI, Roboto, sans-serif; color:var(--ink); }
-  .slide { width:1600px; height:900px; margin:24px auto; background:#fff; box-shadow:0 8px 40px rgba(0,0,0,.12); padding:44px 56px; box-sizing:border-box; display:grid; grid-template-columns: 1.15fr 1fr; grid-template-rows:auto 1fr auto; gap:18px 40px; }
+  .slide { width:1600px; height:900px; margin:24px auto; background:#fff; box-shadow:0 8px 40px rgba(0,0,0,.12); padding:44px 56px; box-sizing:border-box; display:grid; grid-template-columns: 1.15fr 1fr; grid-template-rows:auto 1fr auto; gap:12px 40px; }
   h1 { grid-column:1/3; margin:0; font-size:38px; letter-spacing:-.01em; }
   h1 small { font-size:20px; color:var(--muted); font-weight:500; margin-left:14px; }
   h2 { font-size:19px; margin:0 0 8px; text-transform:uppercase; letter-spacing:.06em; color:var(--accent); }
-  .col { display:flex; flex-direction:column; gap:14px; min-height:0; }
-  table { border-collapse:collapse; width:100%; font-size:17px; }
-  th,td { padding:6px 10px; border-bottom:1px solid var(--line); text-align:left; }
+  .col { display:flex; flex-direction:column; gap:9px; min-height:0; }
+  table { border-collapse:collapse; width:100%; font-size:16px; }
+  th,td { padding:4px 9px; border-bottom:1px solid var(--line); text-align:left; }
   th { font-weight:600; color:var(--muted); font-size:14px; text-transform:uppercase; letter-spacing:.04em; }
   td.num { font-variant-numeric: tabular-nums; }
   .big { font-size:22px; font-weight:700; color:var(--accent); }
@@ -24,7 +24,7 @@
   .foot { grid-column:1/3; display:flex; justify-content:space-between; align-items:center; font-size:15px; color:var(--muted); border-top:1px solid var(--line); padding-top:10px; }
   .foot code { font-size:14px; }
   .roc { display:flex; gap:16px; align-items:center; }
-  .roc img { width:250px; height:250px; border:1px solid var(--line); border-radius:8px; }
+  .roc img { width:205px; height:205px; border:1px solid var(--line); border-radius:8px; }
   .roc .k { font-size:15.5px; line-height:1.4; }
 </style></head><body>
 <div class="slide">
@@ -37,7 +37,7 @@
         <tr><th>Track 3 asks for</th><th>We ship</th></tr>
         <tr><td>Tagged episodes</td><td>success/failure per episode from per-frame <b>p(goal state)</b> read from Qwen3-VL / Cosmos-Reason2 / PaliGemma logits</td></tr>
         <tr><td>Confidence meter</td><td>the p(done) curve itself, rendered as a video per episode (bar + sparkline)</td></tr>
-        <tr><td>Prevalence audit</td><td>SAM 3 + 3 VLMs fused on 50 human clips → <span class="big">30% failure</span></td></tr>
+        <tr><td>Prevalence audit</td><td>SAM 3 + 3 VLMs on all 50 human clips → <span class="big">30% failure</span> (27/50 unanimous)</td></tr>
       </table>
     </div>
 
@@ -52,18 +52,20 @@
             <tr><td>SAM 3 cup-in-saucer</td><td class="num">0.70</td><td class="num">0.64</td></tr>
             <tr><td>Fused + gripper veto</td><td class="num">0.70</td><td class="num">0.74</td></tr>
           </table>
-          <div style="margin-top:8px;color:var(--muted);font-size:14.5px">No training. No new labels. Same critic then run on human egocentric video with only the prompts changed.</div>
+          <div style="margin-top:6px;color:var(--muted);font-size:13.5px">No training, no new labels. Same critic on human egocentric video with only the prompts changed.</div>
         </div>
       </div>
     </div>
 
     <div>
-      <h2>Unlabelled human video — three VLM lineages, one code path</h2>
+      <h2>Unlabelled human video — 50 clips × 4 signals, one code path</h2>
       <table>
-        <tr><th></th><th>Qwen3-VL-8B</th><th>PaliGemma2-3B</th><th>Cosmos-Reason2-8B</th><th>SAM 3</th></tr>
-        <tr><td>cup50 clips (n=50, end of clip)</td><td class="num">39/50 ✅</td><td class="num">42/50</td><td class="num">34/50</td><td class="num"><b>fused: 35/50 → 30% fail</b></td></tr>
-        <tr><td>aria 2-min egocentric (n=8, peak)</td><td class="num">8/8</td><td class="num">8/8</td><td class="num">6/8</td><td class="num">2/5</td></tr>
+        <tr><th>signal</th><th>tagged success</th><th>failure prevalence</th></tr>
+        <tr><td>SAM 3 cup-in-saucer</td><td class="num">36/50</td><td class="num">28%</td></tr>
+        <tr><td>Qwen3-VL · PaliGemma2 · Cosmos-R2 (8B·3B·8B)</td><td class="num">39 · 42 · 34 /50</td><td class="num">22 · 16 · 32%</td></tr>
+        <tr><td><b>Fused</b> = mean(SEG, mean of VLMs)</td><td class="num"><b>35/50</b></td><td class="num"><b>30%</b></td></tr>
       </table>
+      <div style="margin-top:4px;color:var(--muted);font-size:13.5px">27/50 unanimous across all four signals, 37/50 with ≥3 of 4, 6 split 2–2. One 2-min aria video split into <b>25 attempts → 16 success / 9 failure</b>.</div>
     </div>
   </div>
 
@@ -71,7 +73,7 @@
     <div>
       <h2>Judging criteria</h2>
       <div class="judge">
-        <div class="card"><b>✅ Does it run?</b><p>Every number here came out of a <code>modal run</code> in the repo today: 5 Modal apps, 3 datasets, 3 VLMs, 50 + 20 + 20 episodes. Overlay &amp; meter videos in <code>demo/</code>; graphs, ROC, per-episode verdicts regenerated by one script in <code>results/</code>.</p></div>
+        <div class="card"><b>✅ Does it run?</b><p>Every number here came out of a <code>modal run</code> in the repo today: 5 Modal apps, 3 datasets, 3 VLMs × all 50 human clips + 20 robot episodes. Overlay &amp; meter videos in <code>demo/</code>; graphs, ROC, per-episode verdicts regenerated by one script in <code>results/</code>.</p></div>
         <div class="card"><b>✅ Is it defensible?</b><p>Every choice has a check behind it: gripper polarity verified on the wrist cam; arm frames verified by projecting onto the image; the model's actual top-5 tokens logged on every trace; thresholds fixed at 0.5, AUROC threshold-free; both scoring windows shown for every set.</p></div>
       </div>
     </div>
@@ -79,15 +81,15 @@
     <div>
       <h2>What we learned (and can prove)</h2>
       <ol>
-        <li><b>Ask about the goal <em>state</em>, not "was the task completed?"</b> The latter is unanswerable from one frame — p(yes) sat at 10⁻⁴ everywhere while the <em>ranking</em> still worked (AUROC 0.73 → 0.83 after the fix). Only visible because we read logits: 0.49 and 0.02 both print "No".</li>
+        <li><b>Ask about the goal <em>state</em>, not "was the task completed?"</b> Unanswerable from one frame — p(yes) sat at 10⁻⁴ everywhere while the <em>ranking</em> still worked (AUROC 0.73 → 0.83 after the fix). Smaller model, more literal question: PaliGemma hedged (0.28–0.65) on the generic prompt, decisive (0.07–0.97) on "is the cup resting on the saucer?". Only visible because we read logits.</li>
         <li><b>Robot failures here are not drops.</b> Zero gripper slips across all 10 failures; <em>hesitation</em> — off-hand speed, dominant-arm path length — separates the classes. Geometry flags, VLM adjudicates.</li>
-        <li><b>The scoring window must match the video.</b> End-of-clip for short demos; peak for long egocentric footage where the person looks away after placing the cup. The same statistic over-calls success on eva (17/20) — so it's a per-dataset choice, stated, both counts shown.</li>
+        <li><b>The unit of evaluation must match the video.</b> A cup50 clip is one attempt — score its end. An aria episode is 25 attempts — segment first (cup speed <em>relative to the saucer</em>, so head motion cancels), then score each.</li>
       </ol>
     </div>
 
     <div class="card" style="background:#fafafa">
       <b>Why it scales to the prevalence problem</b>
-      <p style="margin:6px 0 0;font-size:15.5px;line-height:1.4">Geometric track is CPU — the whole slice in seconds. SAM 3 is text-prompted from the task description, so no per-episode human seeding. VLM is one batched forward pass per sampled frame. A full-dataset sweep is a <code>.map()</code> with per-stage GPUs — many cheap ones for SAM 3, a few big ones for the critic.</p>
+      <p style="margin:6px 0 0;font-size:15.5px;line-height:1.4">Geometric track is CPU — the whole slice in seconds. SAM 3 is text-prompted from the task description, so no per-episode human seeding. VLM is one batched forward pass per sampled frame (16/pass, H100): 50 clips × 3 models in minutes. A full-dataset sweep is a <code>.map()</code> with per-stage GPUs — many cheap ones for SAM 3, a few big ones for the critic.</p>
     </div>
   </div>
 
