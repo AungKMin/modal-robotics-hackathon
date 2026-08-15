@@ -464,7 +464,7 @@ def main(
         (out_dir / f"{name}.json").write_text(json.dumps(result))
         scored.append(result)
         print(
-            f"  {name}: label={result['label']:<8} "
+            f"  {name}: label={str(result['label']):<8} "
             f"p_yes_final={result['p_yes_final']:.3f} "
             f"p_yes_max={result['p_yes_max']:.3f}"
         )
